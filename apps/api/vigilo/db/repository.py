@@ -8,7 +8,8 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..domain.events import OperationalEvent
+from ..domain.events import AuditRecord, OperationalEvent
+from ..domain.outbox import OutboxMessage, OutboxStatus
 from ..domain.ledger import InventoryBalanceSnapshot, InventoryLedgerEntry, InventoryState, LedgerEntryType
 from ..domain.models import (
     Allocation,
@@ -30,12 +31,14 @@ from ..domain.models import (
 )
 from .models import (
     AllocationModel,
+    AuditRecordModel,
     BatchModel,
     DeliveryModel,
     IdempotencyKeyModel,
     IncidentModel,
     InventoryLedgerEntryModel,
     OperationalEventModel,
+    OutboxMessageModel,
     RiderModel,
     ShelterModel,
 )
@@ -375,6 +378,111 @@ class DatabaseRepository:
             )
             for m in models
         ]
+
+    # -------------------------------------------------------------------------
+    # Audit Records
+    # -------------------------------------------------------------------------
+    def append_audit_record(self, record: AuditRecord) -> None:
+        model = AuditRecordModel(
+            id=record.id,
+            event_id=record.event_id,
+            actor=record.actor,
+            command=record.command,
+            decision=record.decision,
+            constraints_evaluated=record.constraints_evaluated,
+            evidence_json=record.evidence,
+            created_at=record.created_at,
+        )
+        self.session.add(model)
+
+    def get_audit_record(self, audit_id: str) -> AuditRecord | None:
+        model = self.session.get(AuditRecordModel, audit_id)
+        if model is None:
+            return None
+        return AuditRecord(
+            id=model.id,
+            event_id=model.event_id or "",
+            actor=model.actor,
+            command=model.command,
+            decision=model.decision,
+            constraints_evaluated=model.constraints_evaluated or [],
+            evidence=model.evidence_json or {},
+            created_at=model.created_at,
+        )
+
+    def list_audit_records(self, limit: int = 50) -> list[AuditRecord]:
+        stmt = select(AuditRecordModel).order_by(AuditRecordModel.created_at.desc()).limit(limit)
+        models = self.session.execute(stmt).scalars().all()
+        return [
+            AuditRecord(
+                id=m.id,
+                event_id=m.event_id or "",
+                actor=m.actor,
+                command=m.command,
+                decision=m.decision,
+                constraints_evaluated=m.constraints_evaluated or [],
+                evidence=m.evidence_json or {},
+                created_at=m.created_at,
+            )
+            for m in models
+        ]
+
+    # -------------------------------------------------------------------------
+    # Transactional Outbox
+    # -------------------------------------------------------------------------
+    def append_outbox_message(self, msg: OutboxMessage) -> None:
+        model = OutboxMessageModel(
+            id=msg.id,
+            event_id=msg.event_id,
+            event_type=msg.event_type,
+            topic=msg.topic,
+            payload_json=msg.payload,
+            status=msg.status.value,
+            retry_count=msg.retry_count,
+            last_error=msg.last_error,
+            created_at=msg.created_at,
+            published_at=msg.published_at,
+        )
+        self.session.add(model)
+
+    def get_pending_outbox_messages(self, limit: int = 50) -> list[OutboxMessage]:
+        stmt = (
+            select(OutboxMessageModel)
+            .where(OutboxMessageModel.status == "PENDING")
+            .order_by(OutboxMessageModel.created_at.asc())
+            .limit(limit)
+        )
+        models = self.session.execute(stmt).scalars().all()
+        return [
+            OutboxMessage(
+                id=m.id,
+                event_id=m.event_id,
+                event_type=m.event_type,
+                topic=m.topic,
+                payload=m.payload_json or {},
+                status=OutboxStatus(m.status),
+                retry_count=m.retry_count,
+                last_error=m.last_error,
+                created_at=m.created_at,
+                published_at=m.published_at,
+            )
+            for m in models
+        ]
+
+    def mark_outbox_message_published(self, msg_id: str, published_at: datetime) -> None:
+        model = self.session.get(OutboxMessageModel, msg_id)
+        if model is not None:
+            model.status = "PUBLISHED"
+            model.published_at = published_at
+            model.last_error = None
+
+    def mark_outbox_message_failed(self, msg_id: str, error: str) -> None:
+        model = self.session.get(OutboxMessageModel, msg_id)
+        if model is not None:
+            model.retry_count += 1
+            model.last_error = error
+            if model.retry_count >= 5:
+                model.status = "FAILED"
 
     # -------------------------------------------------------------------------
     # Domain Mapping Helpers

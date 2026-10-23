@@ -58,7 +58,7 @@ def test_allocation_lifecycle_mirrors_in_ledger():
     # 2. Cancel allocation -> releases reservation back to available
     cancel_res = client.post(f"/v1/allocations/{alloc_id}/cancel")
     assert cancel_res.status_code == 200
-    assert cancel_res.json()["state"] == "EXPIRED"
+    assert cancel_res.json()["state"] == "CANCELLED"
 
     # Ledger should contain RESERVATION_RELEASE
     ledger_res_2 = client.get("/v1/batches/batch_prepared_meals/ledger")

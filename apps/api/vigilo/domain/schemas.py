@@ -386,3 +386,40 @@ class CandidateGenerationResponseSchema(BaseModel):
     generated_at: datetime
 
 
+# Phase 4: Dispatch Execution, Outbox, and Audit Schemas
+class AuditRecordResponseSchema(BaseModel):
+    id: str
+    event_id: str
+    actor: str
+    command: str
+    decision: str
+    constraints_evaluated: list[str] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class OutboxMessageResponseSchema(BaseModel):
+    id: str
+    event_id: str
+    event_type: str
+    topic: str
+    payload: dict[str, Any]
+    status: str
+    retry_count: int
+    last_error: str | None = None
+    created_at: datetime
+    published_at: datetime | None = None
+
+
+class BatchLifecycleReconstructionResponseSchema(BaseModel):
+    batch_id: str
+    original_quantity: int
+    current_status: dict[str, int]
+    ledger_entries_count: int
+    ledger_timeline: list[dict[str, Any]]
+    related_events_count: int
+    allocations_count: int
+    deliveries_count: int
+
+
+

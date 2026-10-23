@@ -14,6 +14,7 @@ from .errors import (
     VigiloError,
 )
 from .events import AuditRecord, EventType, OperationalEvent
+from .outbox import OutboxMessage, OutboxPublisher, OutboxStatus
 from .candidate_engine import CandidateAssignment, CandidateEngine, CandidateGenerationResult
 from .ledger import (
     InventoryLedgerEntry,
@@ -77,6 +78,8 @@ class DispatchService:
         self.incidents: dict[str, Incident] = {}
         self.events: list[OperationalEvent] = []
         self.audit_records: list[AuditRecord] = []
+        self.outbox_messages: list[OutboxMessage] = []
+        self.outbox_publisher = OutboxPublisher()
 
     def record_event(
         self,
@@ -97,7 +100,22 @@ class DispatchService:
             evidence=evidence or {},
         )
         self.events.append(event)
+        outbox_msg = OutboxMessage.from_event(event)
+        self.outbox_messages.append(outbox_msg)
         return event
+
+    def publish_outbox(self, limit: int = 50) -> int:
+        """Publish pending outbox messages to registered subscribers."""
+        count = 0
+        now = self.clock.now()
+        for msg in self.outbox_messages:
+            if msg.status == OutboxStatus.PENDING:
+                success = self.outbox_publisher.publish(msg, now)
+                if success:
+                    count += 1
+                if count >= limit:
+                    break
+        return count
 
     def preview(self, request: DispatchRequest) -> DispatchDecision:
         now = request.now or self.clock.now()
@@ -291,37 +309,83 @@ class DispatchService:
 
         return allocation
 
-    def acknowledge_allocation(self, allocation_id: str, actor: str = "rider") -> Allocation:
+    def acknowledge_allocation(self, allocation_id: str, actor: str = "rider", actor_role: str | None = None) -> Allocation:
+        now = self.clock.now()
+        if actor_role and actor_role not in ("RIDER", "ADMIN", "DISPATCHER"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to acknowledge allocations",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
         allocation = self.allocations.get(allocation_id)
         if allocation is None:
             raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+        if allocation.lease_expires_at and now > allocation.lease_expires_at:
+            raise VigiloError(
+                ErrorCode.CLAIM_EXPIRED,
+                f"Allocation lease expired at {allocation.lease_expires_at.isoformat()}",
+                evidence={"lease_expires_at": allocation.lease_expires_at.isoformat(), "now": now.isoformat()},
+            )
 
         AllocationStateMachine.validate_transition(
             allocation.state, AllocationState.ACKNOWLEDGED, allocation_id
         )
 
         allocation.state = AllocationState.ACKNOWLEDGED
-        allocation.acknowledged_at = self.clock.now()
+        allocation.acknowledged_at = now
 
-        self.record_event(
+        event = self.record_event(
             event_type=EventType.ALLOCATION_ACKNOWLEDGED,
             aggregate_id=allocation.id,
             aggregate_type="Allocation",
             actor=actor,
-            payload={"state": allocation.state.value},
+            payload={"state": allocation.state.value, "batch_id": allocation.batch_id},
         )
+        audit = AuditRecord.record(
+            actor=actor,
+            command="allocation.acknowledge",
+            decision="ACKNOWLEDGED",
+            constraints=["LEASE_ACTIVE"],
+            evidence={"allocation_id": allocation_id, "state": allocation.state.value},
+            now=now,
+            event_id=event.id,
+        )
+        self.audit_records.append(audit)
         return allocation
 
-    def pickup_allocation(self, allocation_id: str, actor: str = "rider") -> Delivery:
+    def pickup_allocation(self, allocation_id: str, actor: str = "rider", actor_role: str | None = None) -> Delivery:
         """Confirm physical pickup of cargo by the rider.
 
         Transitions ledger state from RESERVED to PICKED_UP,
         updates allocation state to PICKED_UP, and creates an in-transit Delivery entity.
         """
         now = self.clock.now()
+        if actor_role and actor_role not in ("RIDER", "ADMIN", "DISPATCHER"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to pick up cargo",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
         allocation = self.allocations.get(allocation_id)
         if allocation is None:
             raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+        if allocation.state == AllocationState.CLAIMED and allocation.lease_expires_at and now > allocation.lease_expires_at:
+            raise VigiloError(
+                ErrorCode.CLAIM_EXPIRED,
+                f"Allocation lease expired at {allocation.lease_expires_at.isoformat()} prior to pickup",
+                evidence={"lease_expires_at": allocation.lease_expires_at.isoformat(), "now": now.isoformat()},
+            )
+
+        if now > allocation.safe_until:
+            raise VigiloError(
+                ErrorCode.SAFETY_DEADLINE_UNSAFE,
+                f"Safe-handling deadline passed at {allocation.safe_until.isoformat()}",
+                evidence={"safe_until": allocation.safe_until.isoformat(), "now": now.isoformat()},
+            )
 
         AllocationStateMachine.validate_transition(
             allocation.state, AllocationState.PICKED_UP, allocation_id
@@ -360,18 +424,35 @@ class DispatchService:
         )
         self.deliveries[delivery.id] = delivery
 
-        self.record_event(
+        event = self.record_event(
             event_type=EventType.CARGO_PICKED_UP,
             aggregate_id=delivery.id,
             aggregate_type="Delivery",
             actor=actor,
-            payload={"allocation_id": allocation.id, "quantity": delivery.quantity},
+            payload={"allocation_id": allocation.id, "quantity": delivery.quantity, "batch_id": batch.id},
         )
+        audit = AuditRecord.record(
+            actor=actor,
+            command="allocation.pickup",
+            decision="PICKED_UP",
+            constraints=["SAFE_HANDLING_DEADLINE", "PHYSICAL_CUSTODY_TRANSFERRED"],
+            evidence={"allocation_id": allocation.id, "delivery_id": delivery.id, "quantity": delivery.quantity},
+            now=now,
+            event_id=event.id,
+        )
+        self.audit_records.append(audit)
         return delivery
 
-    def deliver_cargo(self, delivery_id: str, actor: str = "rider") -> Delivery:
+    def deliver_cargo(self, delivery_id: str, actor: str = "rider", actor_role: str | None = None) -> Delivery:
         """Confirm delivery of physical cargo to recipient shelter."""
         now = self.clock.now()
+        if actor_role and actor_role not in ("RIDER", "ADMIN", "DISPATCHER", "SHELTER_COORDINATOR"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to confirm delivery",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
         delivery = self.deliveries.get(delivery_id)
         if delivery is None:
             raise EntityNotFoundError(ErrorCode.DELIVERY_NOT_FOUND, "Delivery", delivery_id)
@@ -398,14 +479,99 @@ class DispatchService:
         if rider.active_load == 0:
             rider.status = RiderStatus.AVAILABLE
 
-        self.record_event(
+        shelter = self.shelters.get(delivery.current_shelter_id)
+        if shelter:
+            shelter.demand_remaining = max(0, shelter.demand_remaining - delivery.quantity)
+
+        event = self.record_event(
             event_type=EventType.DELIVERY_COMPLETED,
             aggregate_id=delivery.id,
             aggregate_type="Delivery",
             actor=actor,
-            payload={"destination": delivery.current_shelter_id, "quantity": delivery.quantity},
+            payload={"destination": delivery.current_shelter_id, "quantity": delivery.quantity, "batch_id": batch.id},
         )
+        audit = AuditRecord.record(
+            actor=actor,
+            command="delivery.complete",
+            decision="DELIVERED",
+            constraints=["INVENTORY_CONSERVED", "DELIVERY_CONFIRMED"],
+            evidence={"delivery_id": delivery.id, "quantity": delivery.quantity, "destination": delivery.current_shelter_id},
+            now=now,
+            event_id=event.id,
+        )
+        self.audit_records.append(audit)
         return delivery
+
+    def cancel_allocation(
+        self,
+        allocation_id: str,
+        actor: str = "dispatcher",
+        reason: str = "Manual cancellation",
+        actor_role: str | None = None,
+    ) -> Allocation:
+        """Cancel an unpicked allocation and release inventory reservation back to available stock."""
+        now = self.clock.now()
+        if actor_role and actor_role not in ("ADMIN", "DISPATCHER", "RIDER", "SHELTER_COORDINATOR"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to cancel allocations",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
+        allocation = self.allocations.get(allocation_id)
+        if allocation is None:
+            raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+        if allocation.state == AllocationState.PICKED_UP:
+            raise StateTransitionError(
+                "Allocation",
+                str(allocation.state),
+                str(AllocationState.CANCELLED),
+                "Picked-up cargo cannot be released as available stock.",
+            )
+
+        AllocationStateMachine.validate_transition(
+            allocation.state, AllocationState.CANCELLED, allocation_id
+        )
+
+        allocation.state = AllocationState.CANCELLED
+
+        batch = self.batches[allocation.batch_id]
+        self.ledger.release_reservation(
+            batch=batch,
+            quantity=allocation.quantity,
+            allocation_id=allocation.id,
+            actor=actor,
+            reason=reason,
+        )
+
+        rider = self.riders[allocation.rider_id]
+        rider.active_load -= allocation.quantity
+        if rider.active_load == 0:
+            rider.status = RiderStatus.AVAILABLE
+
+        shelter = self.shelters[allocation.shelter_id]
+        shelter.demand_remaining += allocation.quantity
+        shelter.receiving_capacity_remaining += allocation.quantity
+
+        event = self.record_event(
+            event_type=EventType.ALLOCATION_CANCELLED,
+            aggregate_id=allocation.id,
+            aggregate_type="Allocation",
+            actor=actor,
+            payload={"quantity": allocation.quantity, "reason": reason},
+        )
+        audit = AuditRecord.record(
+            actor=actor,
+            command="allocation.cancel",
+            decision="CANCELLED",
+            constraints=["UNPICKED_INVENTORY_RELEASED"],
+            evidence={"allocation_id": allocation_id, "quantity": allocation.quantity, "reason": reason},
+            now=now,
+            event_id=event.id,
+        )
+        self.audit_records.append(audit)
+        return allocation
 
     def expire_allocation(self, allocation_id: str, actor: str = "recovery_worker", reason: str = "Lease expired") -> Allocation:
         """Expire an unpicked allocation and release inventory back to available stock.
@@ -488,6 +654,44 @@ class DispatchService:
             self.riders[rider.id] = rider
         for shelter in data["shelters"]:
             self.shelters[shelter.id] = shelter
+
+    def reconstruct_batch_history(self, batch_id: str) -> dict[str, Any]:
+        """Reconstruct full verifiable timeline of a batch purely from events and ledger entries."""
+        if batch_id not in self.batches:
+            raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+        batch = self.batches[batch_id]
+        entries = self.get_batch_ledger(batch_id)
+        allocs = [a for a in self.allocations.values() if a.batch_id == batch_id]
+        delivs = [d for d in self.deliveries.values() if d.batch_id == batch_id]
+        alloc_ids = {a.id for a in allocs}
+        deliv_ids = {d.id for d in delivs}
+        events = [
+            e for e in self.events
+            if e.aggregate_id == batch_id
+            or e.aggregate_id in alloc_ids
+            or e.aggregate_id in deliv_ids
+            or (isinstance(e.payload, dict) and (
+                e.payload.get("batch_id") == batch_id
+                or e.payload.get("allocation_id") in alloc_ids
+            ))
+        ]
+
+        return {
+            "batch_id": batch.id,
+            "original_quantity": batch.original_quantity,
+            "current_status": {
+                "available": batch.available_quantity,
+                "reserved": batch.reserved_quantity,
+                "picked_up": batch.picked_up_quantity,
+                "delivered": batch.delivered_quantity,
+                "spoiled": batch.spoiled_quantity,
+            },
+            "ledger_entries_count": len(entries),
+            "ledger_timeline": [e.to_dict() for e in entries],
+            "related_events_count": len(events),
+            "allocations_count": len(allocs),
+            "deliveries_count": len(delivs),
+        }
 
     @staticmethod
     def _rejection(code: ErrorCode | str, reason: str, evidence: dict[str, object] | None = None) -> DispatchDecision:

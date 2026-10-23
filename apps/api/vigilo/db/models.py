@@ -213,3 +213,32 @@ class IncidentModel(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     evidence_json: Mapped[dict] = mapped_column(JsonObject, default=dict, nullable=False)
+
+
+class AuditRecordModel(Base):
+    __tablename__ = "audit_records"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    event_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    command: Mapped[str] = mapped_column(String, nullable=False)
+    decision: Mapped[str] = mapped_column(String, nullable=False)
+    constraints_evaluated: Mapped[list[str]] = mapped_column(TextArray, default=list, nullable=False)
+    evidence_json: Mapped[dict] = mapped_column(JsonObject, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class OutboxMessageModel(Base):
+    __tablename__ = "outbox_messages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    event_id: Mapped[str] = mapped_column(String, nullable=False)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    topic: Mapped[str] = mapped_column(String, default="dispatch", nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JsonObject, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="PENDING", nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+

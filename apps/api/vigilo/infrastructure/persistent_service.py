@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Generator
 from uuid import uuid4
 
@@ -18,7 +18,7 @@ from ..domain.errors import (
     StateTransitionError,
     VigiloError,
 )
-from ..domain.events import EventType, OperationalEvent
+from ..domain.events import AuditRecord, EventType, OperationalEvent
 from ..domain.ledger import (
     InventoryLedgerEntry,
     InventoryState,
@@ -34,6 +34,7 @@ from ..domain.models import (
     RiderStatus,
     StorageRequirement,
 )
+from ..domain.outbox import OutboxMessage, OutboxPublisher, OutboxStatus
 from ..domain.safety_engine import SafetyEngine
 from ..domain.state_machines import AllocationStateMachine, DeliveryStateMachine
 
@@ -113,8 +114,9 @@ class PersistentDispatchService(DispatchService):
                     evidence=report.evidence,
                 )
 
-            # 3. Safe handling deadlines and lease
+            # 3. Safe handling deadlines and 15-minute lease
             safe_until = batch.item_rules.safe_until(batch.created_at)
+            lease_expires_at = now + timedelta(minutes=15)
             allocation_id = f"alloc_{uuid4().hex[:12]}"
 
             # 4. Record ledger reservation hold
@@ -145,6 +147,7 @@ class PersistentDispatchService(DispatchService):
                 handoff_minutes=request.handoff_minutes,
                 state=AllocationState.CLAIMED,
                 claimed_at=now,
+                lease_expires_at=lease_expires_at,
                 safe_until=safe_until,
             )
 
@@ -153,7 +156,7 @@ class PersistentDispatchService(DispatchService):
             repo.save_shelter(shelter)
             repo.save_allocation(allocation)
 
-            # 7. Record operational event
+            # 7. Record operational event and transactional outbox message
             event = OperationalEvent.create(
                 event_type=EventType.ALLOCATION_CLAIMED,
                 aggregate_id=allocation.id,
@@ -163,6 +166,20 @@ class PersistentDispatchService(DispatchService):
                 payload={"batch_id": batch.id, "rider_id": rider.id, "shelter_id": shelter.id, "quantity": request.quantity},
             )
             repo.append_event(event)
+            outbox_msg = OutboxMessage.from_event(event)
+            repo.append_outbox_message(outbox_msg)
+
+            # 8. Record audit trail
+            audit = AuditRecord.record(
+                actor=actor,
+                command="dispatch.commit",
+                decision="COMMITTED",
+                constraints=report.evaluated_rules,
+                evidence=report.evidence,
+                now=now,
+                event_id=event.id,
+            )
+            repo.append_audit_record(audit)
 
             # Sync in-memory cache
             self.batches[batch.id] = batch
@@ -170,16 +187,32 @@ class PersistentDispatchService(DispatchService):
             self.shelters[shelter.id] = shelter
             self.allocations[allocation.id] = allocation
             self.events.append(event)
+            self.outbox_messages.append(outbox_msg)
+            self.audit_records.append(audit)
 
             return allocation
 
-    def acknowledge_allocation(self, allocation_id: str, actor: str = "rider") -> Allocation:
+    def acknowledge_allocation(self, allocation_id: str, actor: str = "rider", actor_role: str | None = None) -> Allocation:
         now = self.clock.now()
+        if actor_role and actor_role not in ("RIDER", "ADMIN", "DISPATCHER"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to acknowledge allocations",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
         with self._session() as session:
             repo = DatabaseRepository(session)
             allocation = repo.get_allocation(allocation_id, for_update=True)
             if allocation is None:
                 raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+            if allocation.lease_expires_at and now > allocation.lease_expires_at:
+                raise VigiloError(
+                    ErrorCode.CLAIM_EXPIRED,
+                    f"Allocation lease expired at {allocation.lease_expires_at.isoformat()}",
+                    evidence={"lease_expires_at": allocation.lease_expires_at.isoformat(), "now": now.isoformat()},
+                )
 
             AllocationStateMachine.validate_transition(
                 allocation.state, AllocationState.ACKNOWLEDGED, allocation_id
@@ -195,21 +228,57 @@ class PersistentDispatchService(DispatchService):
                 aggregate_type="Allocation",
                 occurred_at=now,
                 actor=actor,
-                payload={"state": allocation.state.value},
+                payload={"state": allocation.state.value, "batch_id": allocation.batch_id},
             )
             repo.append_event(event)
+            outbox_msg = OutboxMessage.from_event(event)
+            repo.append_outbox_message(outbox_msg)
+
+            audit = AuditRecord.record(
+                actor=actor,
+                command="allocation.acknowledge",
+                decision="ACKNOWLEDGED",
+                constraints=["LEASE_ACTIVE"],
+                evidence={"allocation_id": allocation_id, "state": allocation.state.value},
+                now=now,
+                event_id=event.id,
+            )
+            repo.append_audit_record(audit)
 
             self.allocations[allocation.id] = allocation
             self.events.append(event)
+            self.outbox_messages.append(outbox_msg)
+            self.audit_records.append(audit)
             return allocation
 
-    def pickup_allocation(self, allocation_id: str, actor: str = "rider") -> Delivery:
+    def pickup_allocation(self, allocation_id: str, actor: str = "rider", actor_role: str | None = None) -> Delivery:
         now = self.clock.now()
+        if actor_role and actor_role not in ("RIDER", "ADMIN", "DISPATCHER"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to pick up cargo",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
         with self._session() as session:
             repo = DatabaseRepository(session)
             allocation = repo.get_allocation(allocation_id, for_update=True)
             if allocation is None:
                 raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+            if allocation.state == AllocationState.CLAIMED and allocation.lease_expires_at and now > allocation.lease_expires_at:
+                raise VigiloError(
+                    ErrorCode.CLAIM_EXPIRED,
+                    f"Allocation lease expired at {allocation.lease_expires_at.isoformat()} prior to pickup",
+                    evidence={"lease_expires_at": allocation.lease_expires_at.isoformat(), "now": now.isoformat()},
+                )
+
+            if now > allocation.safe_until:
+                raise VigiloError(
+                    ErrorCode.SAFETY_DEADLINE_UNSAFE,
+                    f"Safe-handling deadline passed at {allocation.safe_until.isoformat()}",
+                    evidence={"safe_until": allocation.safe_until.isoformat(), "now": now.isoformat()},
+                )
 
             AllocationStateMachine.validate_transition(
                 allocation.state, AllocationState.PICKED_UP, allocation_id
@@ -262,19 +331,41 @@ class PersistentDispatchService(DispatchService):
                 aggregate_type="Delivery",
                 occurred_at=now,
                 actor=actor,
-                payload={"allocation_id": allocation.id, "quantity": delivery.quantity},
+                payload={"allocation_id": allocation.id, "quantity": delivery.quantity, "batch_id": batch.id},
             )
             repo.append_event(event)
+            outbox_msg = OutboxMessage.from_event(event)
+            repo.append_outbox_message(outbox_msg)
+
+            audit = AuditRecord.record(
+                actor=actor,
+                command="allocation.pickup",
+                decision="PICKED_UP",
+                constraints=["SAFE_HANDLING_DEADLINE", "PHYSICAL_CUSTODY_TRANSFERRED"],
+                evidence={"allocation_id": allocation.id, "delivery_id": delivery.id, "quantity": delivery.quantity},
+                now=now,
+                event_id=event.id,
+            )
+            repo.append_audit_record(audit)
 
             self.allocations[allocation.id] = allocation
             self.batches[batch.id] = batch
             self.riders[rider.id] = rider
             self.deliveries[delivery.id] = delivery
             self.events.append(event)
+            self.outbox_messages.append(outbox_msg)
+            self.audit_records.append(audit)
             return delivery
 
-    def deliver_cargo(self, delivery_id: str, actor: str = "rider") -> Delivery:
+    def deliver_cargo(self, delivery_id: str, actor: str = "rider", actor_role: str | None = None) -> Delivery:
         now = self.clock.now()
+        if actor_role and actor_role not in ("RIDER", "ADMIN", "DISPATCHER", "SHELTER_COORDINATOR"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to confirm delivery",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
         with self._session() as session:
             repo = DatabaseRepository(session)
             delivery = repo.get_delivery(delivery_id, for_update=True)
@@ -309,6 +400,12 @@ class PersistentDispatchService(DispatchService):
             if rider.active_load == 0:
                 rider.status = RiderStatus.AVAILABLE
 
+            shelter = repo.get_shelter(delivery.current_shelter_id, for_update=True)
+            if shelter:
+                shelter.demand_remaining = max(0, shelter.demand_remaining - delivery.quantity)
+                repo.save_shelter(shelter)
+                self.shelters[shelter.id] = shelter
+
             repo.save_delivery(delivery)
             repo.save_batch(batch)
             repo.save_rider(rider)
@@ -319,15 +416,129 @@ class PersistentDispatchService(DispatchService):
                 aggregate_type="Delivery",
                 occurred_at=now,
                 actor=actor,
-                payload={"destination": delivery.current_shelter_id, "quantity": delivery.quantity},
+                payload={"destination": delivery.current_shelter_id, "quantity": delivery.quantity, "batch_id": batch.id},
             )
             repo.append_event(event)
+            outbox_msg = OutboxMessage.from_event(event)
+            repo.append_outbox_message(outbox_msg)
+
+            audit = AuditRecord.record(
+                actor=actor,
+                command="delivery.complete",
+                decision="DELIVERED",
+                constraints=["INVENTORY_CONSERVED", "DELIVERY_CONFIRMED"],
+                evidence={"delivery_id": delivery.id, "quantity": delivery.quantity, "destination": delivery.current_shelter_id},
+                now=now,
+                event_id=event.id,
+            )
+            repo.append_audit_record(audit)
 
             self.deliveries[delivery.id] = delivery
             self.batches[batch.id] = batch
             self.riders[rider.id] = rider
             self.events.append(event)
+            self.outbox_messages.append(outbox_msg)
+            self.audit_records.append(audit)
             return delivery
+
+    def cancel_allocation(
+        self,
+        allocation_id: str,
+        actor: str = "dispatcher",
+        reason: str = "Manual cancellation",
+        actor_role: str | None = None,
+    ) -> Allocation:
+        now = self.clock.now()
+        if actor_role and actor_role not in ("ADMIN", "DISPATCHER", "RIDER", "SHELTER_COORDINATOR"):
+            raise VigiloError(
+                ErrorCode.AUTHORIZATION_DENIED,
+                f"Actor role '{actor_role}' is not authorized to cancel allocations",
+                evidence={"actor": actor, "actor_role": actor_role},
+            )
+
+        with self._session() as session:
+            repo = DatabaseRepository(session)
+            allocation = repo.get_allocation(allocation_id, for_update=True)
+            if allocation is None:
+                raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+            if allocation.state == AllocationState.PICKED_UP:
+                raise StateTransitionError(
+                    "Allocation",
+                    str(allocation.state),
+                    str(AllocationState.CANCELLED),
+                    "Picked-up cargo cannot be released as available stock.",
+                )
+
+            AllocationStateMachine.validate_transition(
+                allocation.state, AllocationState.CANCELLED, allocation_id
+            )
+
+            batch = repo.get_batch(allocation.batch_id, for_update=True)
+            if batch is None:
+                raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", allocation.batch_id)
+
+            rider = repo.get_rider(allocation.rider_id, for_update=True)
+            if rider is None:
+                raise EntityNotFoundError(ErrorCode.RIDER_NOT_FOUND, "Rider", allocation.rider_id)
+
+            shelter = repo.get_shelter(allocation.shelter_id, for_update=True)
+            if shelter is None:
+                raise EntityNotFoundError(ErrorCode.SHELTER_NOT_FOUND, "Shelter", allocation.shelter_id)
+
+            allocation.state = AllocationState.CANCELLED
+            entry = self.ledger.release_reservation(
+                batch=batch,
+                quantity=allocation.quantity,
+                allocation_id=allocation.id,
+                actor=actor,
+                reason=reason,
+            )
+            repo.append_ledger_entry(entry)
+
+            rider.active_load -= allocation.quantity
+            if rider.active_load == 0:
+                rider.status = RiderStatus.AVAILABLE
+
+            shelter.demand_remaining += allocation.quantity
+            shelter.receiving_capacity_remaining += allocation.quantity
+
+            repo.save_allocation(allocation)
+            repo.save_batch(batch)
+            repo.save_rider(rider)
+            repo.save_shelter(shelter)
+
+            event = OperationalEvent.create(
+                event_type=EventType.ALLOCATION_CANCELLED,
+                aggregate_id=allocation.id,
+                aggregate_type="Allocation",
+                occurred_at=now,
+                actor=actor,
+                payload={"quantity": allocation.quantity, "reason": reason},
+            )
+            repo.append_event(event)
+            outbox_msg = OutboxMessage.from_event(event)
+            repo.append_outbox_message(outbox_msg)
+
+            audit = AuditRecord.record(
+                actor=actor,
+                command="allocation.cancel",
+                decision="CANCELLED",
+                constraints=["UNPICKED_INVENTORY_RELEASED"],
+                evidence={"allocation_id": allocation_id, "quantity": allocation.quantity, "reason": reason},
+                now=now,
+                event_id=event.id,
+            )
+            repo.append_audit_record(audit)
+
+            self.allocations[allocation.id] = allocation
+            self.batches[batch.id] = batch
+            self.riders[rider.id] = rider
+            self.shelters[shelter.id] = shelter
+            self.events.append(event)
+            self.outbox_messages.append(outbox_msg)
+            self.audit_records.append(audit)
+            return allocation
 
     def expire_allocation(self, allocation_id: str, actor: str = "recovery_worker", reason: str = "Lease expired") -> Allocation:
         now = self.clock.now()
@@ -384,13 +595,84 @@ class PersistentDispatchService(DispatchService):
                 payload={"quantity": allocation.quantity, "reason": reason},
             )
             repo.append_event(event)
+            outbox_msg = OutboxMessage.from_event(event)
+            repo.append_outbox_message(outbox_msg)
+
+            audit = AuditRecord.record(
+                actor=actor,
+                command="allocation.expire",
+                decision="EXPIRED",
+                constraints=["UNPICKED_INVENTORY_RELEASED"],
+                evidence={"allocation_id": allocation_id, "quantity": allocation.quantity, "reason": reason},
+                now=now,
+                event_id=event.id,
+            )
+            repo.append_audit_record(audit)
 
             self.allocations[allocation.id] = allocation
             self.batches[batch.id] = batch
             self.riders[rider.id] = rider
             self.shelters[shelter.id] = shelter
             self.events.append(event)
+            self.outbox_messages.append(outbox_msg)
+            self.audit_records.append(audit)
             return allocation
+
+    def publish_outbox(self, limit: int = 50) -> int:
+        count = 0
+        now = self.clock.now()
+        with self._session() as session:
+            repo = DatabaseRepository(session)
+            pending = repo.get_pending_outbox_messages(limit=limit)
+            for msg in pending:
+                success = self.outbox_publisher.publish(msg, now)
+                if success:
+                    repo.mark_outbox_message_published(msg.id, msg.published_at or now)
+                    count += 1
+                else:
+                    repo.mark_outbox_message_failed(msg.id, msg.last_error or "Publication failed")
+        return count
+
+    def get_audit_record(self, audit_id: str) -> AuditRecord | None:
+        with self._session() as session:
+            repo = DatabaseRepository(session)
+            return repo.get_audit_record(audit_id)
+
+    def list_audit_records(self, limit: int = 50) -> list[AuditRecord]:
+        with self._session() as session:
+            repo = DatabaseRepository(session)
+            return repo.list_audit_records(limit=limit)
+
+    def reconstruct_batch_history(self, batch_id: str) -> dict[str, Any]:
+        with self._session() as session:
+            repo = DatabaseRepository(session)
+            batch = repo.get_batch(batch_id)
+            if batch is None:
+                raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+            entries = repo.get_ledger_entries(batch_id)
+            all_events = repo.list_events(limit=200)
+            events = [
+                e for e in all_events
+                if e.aggregate_id == batch_id
+                or (isinstance(e.payload, dict) and e.payload.get("batch_id") == batch_id)
+            ]
+
+            return {
+                "batch_id": batch.id,
+                "original_quantity": batch.original_quantity,
+                "current_status": {
+                    "available": batch.available_quantity,
+                    "reserved": batch.reserved_quantity,
+                    "picked_up": batch.picked_up_quantity,
+                    "delivered": batch.delivered_quantity,
+                    "spoiled": batch.spoiled_quantity,
+                },
+                "ledger_entries_count": len(entries),
+                "ledger_timeline": [e.to_dict() for e in entries],
+                "related_events_count": len(events),
+                "allocations_count": sum(1 for a in self.allocations.values() if a.batch_id == batch_id),
+                "deliveries_count": sum(1 for d in self.deliveries.values() if d.batch_id == batch_id),
+            }
 
     def get_batch_ledger(self, batch_id: str) -> list[InventoryLedgerEntry]:
         with self._session() as session:

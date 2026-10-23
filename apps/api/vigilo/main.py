@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Header, Query, status
 
 from .domain.clock import Clock, SimulatedClock, SystemClock
 from .domain.dispatch import DispatchError, DispatchRequest, DispatchService
@@ -26,7 +26,9 @@ from .domain.models import (
 )
 from .domain.schemas import (
     AllocationResponseSchema,
+    AuditRecordResponseSchema,
     BatchCreateSchema,
+    BatchLifecycleReconstructionResponseSchema,
     BatchResponseSchema,
     BatchSplitPlanSchema,
     CandidateAssignmentSchema,
@@ -43,6 +45,7 @@ from .domain.schemas import (
     ItemRulesSchema,
     LastSafeDecisionClockResponseSchema,
     OperationalEventResponseSchema,
+    OutboxMessageResponseSchema,
     ReconciliationReportResponseSchema,
     RiderCreateSchema,
     RiderResponseSchema,
@@ -517,36 +520,89 @@ def get_allocation(allocation_id: str) -> AllocationResponseSchema:
 
 
 @app.post("/v1/allocations/{allocation_id}/acknowledge", response_model=AllocationResponseSchema)
-def acknowledge_allocation(allocation_id: str) -> AllocationResponseSchema:
+def acknowledge_allocation(
+    allocation_id: str,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> AllocationResponseSchema:
     if not isinstance(service, DispatchService):
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
     try:
-        alloc = service.acknowledge_allocation(allocation_id)
+        alloc = service.acknowledge_allocation(
+            allocation_id,
+            actor=x_actor or "rider",
+            actor_role=x_actor_role,
+        )
         return _serialize_allocation(alloc)
     except VigiloError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
+        code_status = status.HTTP_403_FORBIDDEN if exc.code == "AUTHORIZATION_DENIED" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code_status, detail=exc.to_dict()) from exc
 
 
 @app.post("/v1/allocations/{allocation_id}/cancel", response_model=AllocationResponseSchema)
-def cancel_allocation(allocation_id: str) -> AllocationResponseSchema:
+def cancel_allocation(
+    allocation_id: str,
+    reason: str = Query(default="Manual allocation cancellation"),
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> AllocationResponseSchema:
     if not isinstance(service, DispatchService):
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
     try:
-        alloc = service.expire_allocation(allocation_id, actor="dispatcher", reason="Manual allocation cancellation")
+        alloc = service.cancel_allocation(
+            allocation_id,
+            actor=x_actor or "dispatcher",
+            reason=reason,
+            actor_role=x_actor_role,
+        )
         return _serialize_allocation(alloc)
     except VigiloError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
+        code_status = status.HTTP_403_FORBIDDEN if exc.code == "AUTHORIZATION_DENIED" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code_status, detail=exc.to_dict()) from exc
 
 
 @app.post("/v1/allocations/{allocation_id}/pickup", response_model=DeliveryResponseSchema)
-def pickup_allocation(allocation_id: str) -> DeliveryResponseSchema:
+def pickup_allocation(
+    allocation_id: str,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> DeliveryResponseSchema:
     if not isinstance(service, DispatchService):
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
     try:
-        delivery = service.pickup_allocation(allocation_id)
+        delivery = service.pickup_allocation(
+            allocation_id,
+            actor=x_actor or "rider",
+            actor_role=x_actor_role,
+        )
         return _serialize_delivery(delivery)
     except VigiloError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
+        code_status = status.HTTP_403_FORBIDDEN if exc.code == "AUTHORIZATION_DENIED" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code_status, detail=exc.to_dict()) from exc
+
+
+@app.post("/v1/allocations/{allocation_id}/deliver", response_model=DeliveryResponseSchema)
+def deliver_allocation_cargo(
+    allocation_id: str,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> DeliveryResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    # Find matching delivery
+    matching_delivery = next((d for d in service.deliveries.values() if d.allocation_id == allocation_id), None)
+    if matching_delivery is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No active delivery found for allocation '{allocation_id}'")
+    try:
+        delivery = service.deliver_cargo(
+            matching_delivery.id,
+            actor=x_actor or "rider",
+            actor_role=x_actor_role,
+        )
+        return _serialize_delivery(delivery)
+    except VigiloError as exc:
+        code_status = status.HTTP_403_FORBIDDEN if exc.code == "AUTHORIZATION_DENIED" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code_status, detail=exc.to_dict()) from exc
 
 
 @app.get("/v1/deliveries/{delivery_id}", response_model=DeliveryResponseSchema)
@@ -557,14 +613,77 @@ def get_delivery(delivery_id: str) -> DeliveryResponseSchema:
 
 
 @app.post("/v1/deliveries/{delivery_id}/deliver", response_model=DeliveryResponseSchema)
-def deliver_cargo(delivery_id: str) -> DeliveryResponseSchema:
+def deliver_cargo(
+    delivery_id: str,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> DeliveryResponseSchema:
     if not isinstance(service, DispatchService):
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
     try:
-        delivery = service.deliver_cargo(delivery_id)
+        delivery = service.deliver_cargo(
+            delivery_id,
+            actor=x_actor or "rider",
+            actor_role=x_actor_role,
+        )
         return _serialize_delivery(delivery)
     except VigiloError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
+        code_status = status.HTTP_403_FORBIDDEN if exc.code == "AUTHORIZATION_DENIED" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=code_status, detail=exc.to_dict()) from exc
+
+
+# -----------------------------------------------------------------------------
+# Outbox & Audit Endpoints (Phase 4)
+# -----------------------------------------------------------------------------
+
+@app.get("/v1/audit/decisions/{decision_id}", response_model=AuditRecordResponseSchema)
+def get_audit_decision(decision_id: str) -> AuditRecordResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    record = None
+    if hasattr(service, "get_audit_record"):
+        record = service.get_audit_record(decision_id)
+    if record is None:
+        record = next((a for a in service.audit_records if a.id == decision_id), None)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Audit record '{decision_id}' not found")
+    return AuditRecordResponseSchema(
+        id=record.id,
+        event_id=record.event_id,
+        actor=record.actor,
+        command=record.command,
+        decision=record.decision,
+        constraints_evaluated=record.constraints_evaluated,
+        evidence=record.evidence,
+        created_at=record.created_at,
+    )
+
+
+@app.get("/v1/audit/inventory/{batch_id}", response_model=BatchLifecycleReconstructionResponseSchema)
+def get_inventory_audit_reconstruction(batch_id: str) -> BatchLifecycleReconstructionResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        report = service.reconstruct_batch_history(batch_id)
+        return BatchLifecycleReconstructionResponseSchema(**report)
+    except VigiloError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.to_dict()) from exc
+
+
+@app.get("/v1/outbox/messages", response_model=list[OutboxMessageResponseSchema])
+def list_outbox_messages(limit: int = Query(default=50, ge=1, le=200)) -> list[OutboxMessageResponseSchema]:
+    if not isinstance(service, DispatchService):
+        return []
+    messages = service.outbox_messages[-limit:]
+    return [OutboxMessageResponseSchema(**m.to_dict()) for m in messages]
+
+
+@app.post("/v1/outbox/publish")
+def publish_outbox_messages(limit: int = Query(default=50, ge=1, le=200)) -> dict[str, int]:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    published = service.publish_outbox(limit=limit)
+    return {"published_count": published}
 
 
 # -----------------------------------------------------------------------------
