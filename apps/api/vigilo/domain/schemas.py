@@ -538,3 +538,59 @@ class ScenarioCompareBaselineResponseSchema(BaseModel):
     baseline_metrics: dict[str, Any]
     comparative_scorecard: list[BaselineMetricComparisonSchema]
     verdict_summary: str
+
+
+# Phase 7: Operational Readiness, Metrics & Emergency Override Schemas
+class SystemReadinessResponseSchema(BaseModel):
+    status: str
+    clock: dict[str, Any]
+    storage: dict[str, Any]
+    ledger: dict[str, Any]
+    workers: dict[str, Any]
+    timestamp: datetime
+
+
+class SystemMetricsResponseSchema(BaseModel):
+    system_status: str
+    uptime_seconds: float
+    batches_count: int
+    riders_total: int
+    riders_available: int
+    riders_in_transit: int
+    shelters_total: int
+    shelters_open: int
+    allocations_active: int
+    deliveries_in_transit: int
+    deliveries_completed: int
+    inventory_available_units: int
+    inventory_reserved_units: int
+    inventory_in_transit_units: int
+    inventory_delivered_units: int
+    inventory_spoiled_units: int
+    incidents_total: int
+    incidents_active: int
+    outbox_pending_messages: int
+    audit_records_total: int
+    ledger_reconciliation_healthy: bool
+
+
+class EmergencyOverrideSchema(BaseModel):
+    override_type: str
+    target_entity_type: str
+    target_entity_id: str
+    justification: str = Field(..., min_length=10)
+    authorized_by: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class EmergencyOverrideResponseSchema(BaseModel):
+    override_id: str
+    override_type: str
+    target_entity_type: str
+    target_entity_id: str
+    status: str
+    justification: str
+    authorized_by: str
+    executed_at: datetime
+    audit_record_id: str
+    applied_changes: dict[str, Any]
