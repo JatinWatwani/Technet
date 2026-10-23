@@ -305,3 +305,84 @@ class CompensatingAdjustmentSchema(BaseModel):
     actor: str = "coordinator"
     idempotency_key: str | None = None
 
+
+# Phase 3: Safety Engine & Candidate Generation Schemas
+class SafetyEvaluationRequestSchema(BaseModel):
+    batch_id: str
+    rider_id: str
+    shelter_id: str
+    quantity: int = Field(gt=0)
+    travel_minutes: int = Field(ge=0)
+    handoff_minutes: int = Field(ge=0)
+    is_route_accessible: bool = True
+
+
+class RuleEvaluationResultSchema(BaseModel):
+    rule_name: str
+    passed: bool
+    reason_code: str | None = None
+    reason: str | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class SafetyEvaluationReportResponseSchema(BaseModel):
+    feasible: bool
+    primary_failure_code: str | None = None
+    primary_failure_reason: str | None = None
+    evaluated_rules: list[str] = Field(default_factory=list)
+    rule_results: list[RuleEvaluationResultSchema] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class LastSafeDecisionClockResponseSchema(BaseModel):
+    batch_id: str
+    shelter_id: str
+    safe_deadline: datetime
+    latest_useful_decision_time: datetime
+    remaining_safe_handling_minutes: float
+    remaining_decision_window_minutes: float
+    is_feasible: bool
+    is_urgently_closing: bool
+    travel_minutes: int
+    handoff_minutes: int
+    safety_buffer_minutes: int
+    confirmation_minutes: int
+    notification_minutes: int
+    checked_at: datetime
+    invalidating_factors: list[str] = Field(default_factory=list)
+
+
+class CandidateAssignmentSchema(BaseModel):
+    batch_id: str
+    rider_id: str
+    shelter_id: str
+    quantity: int
+    travel_minutes: int
+    handoff_minutes: int
+    feasible: bool
+    score: float
+    rank: int
+    ranking_explanation: str
+    evaluation: SafetyEvaluationReportResponseSchema
+    safety_clock: LastSafeDecisionClockResponseSchema
+
+
+class BatchSplitPlanSchema(BaseModel):
+    batch_id: str
+    total_batch_quantity: int
+    allocated_quantity: int
+    remaining_unallocated: int
+    is_fully_allocated: bool
+    assignments: list[CandidateAssignmentSchema]
+
+
+class CandidateGenerationResponseSchema(BaseModel):
+    batch_id: str
+    feasible_count: int
+    rejected_count: int
+    feasible_candidates: list[CandidateAssignmentSchema]
+    rejected_candidates: list[CandidateAssignmentSchema]
+    split_plan: BatchSplitPlanSchema | None = None
+    generated_at: datetime
+
+

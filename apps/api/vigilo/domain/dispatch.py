@@ -14,12 +14,14 @@ from .errors import (
     VigiloError,
 )
 from .events import AuditRecord, EventType, OperationalEvent
+from .candidate_engine import CandidateAssignment, CandidateEngine, CandidateGenerationResult
 from .ledger import (
     InventoryLedgerEntry,
     InventoryState,
     ReconciliationReport,
 )
 from .ledger_service import InventoryLedgerService
+from .safety_engine import LastSafeDecisionClock, SafetyEngine, SafetyEvaluationReport
 from .models import (
     Allocation,
     AllocationState,
@@ -103,104 +105,97 @@ class DispatchService:
         rider = self.riders.get(request.rider_id)
         shelter = self.shelters.get(request.shelter_id)
 
-        evaluated_rules: list[str] = []
-
         if batch is None:
             return self._rejection(ErrorCode.BATCH_NOT_FOUND, "The batch does not exist.")
-        evaluated_rules.append("BATCH_EXISTS")
-
         if rider is None:
             return self._rejection(ErrorCode.RIDER_NOT_FOUND, "The rider does not exist.")
-        evaluated_rules.append("RIDER_EXISTS")
-
         if shelter is None:
             return self._rejection(ErrorCode.SHELTER_NOT_FOUND, "The shelter does not exist.")
-        evaluated_rules.append("SHELTER_EXISTS")
 
-        if request.quantity <= 0:
-            return self._rejection(ErrorCode.INVALID_QUANTITY, "Quantity must be positive.")
-        evaluated_rules.append("QUANTITY_POSITIVE")
-
-        if request.travel_minutes < 0 or request.handoff_minutes < 0:
-            return self._rejection(ErrorCode.INVALID_DURATION, "Travel and handoff minutes cannot be negative.")
-        evaluated_rules.append("DURATION_NON_NEGATIVE")
-
-        # Hard constraint 1: Inventory available
-        if batch.available_quantity < request.quantity:
-            return self._rejection(
-                ErrorCode.INVENTORY_INSUFFICIENT,
-                "The batch does not have enough available inventory.",
-                {"available": batch.available_quantity, "requested": request.quantity},
-            )
-        evaluated_rules.append("INVENTORY_AVAILABLE")
-
-        # Hard constraint 2: Rider available and within capacity
-        if not rider.available or rider.status != RiderStatus.AVAILABLE:
-            return self._rejection(ErrorCode.RIDER_UNAVAILABLE, "The rider is not available.")
-        if rider.remaining_capacity < request.quantity:
-            return self._rejection(
-                ErrorCode.RIDER_CAPACITY_EXCEEDED,
-                "The assignment exceeds the rider's remaining capacity.",
-                {"remaining_capacity": rider.remaining_capacity, "requested": request.quantity},
-            )
-        evaluated_rules.append("RIDER_CAPACITY_FIT")
-
-        # Hard constraint 3: Shelter open, within demand and receiving capacity
-        if not shelter.open or shelter.status == ShelterStatus.CLOSED:
-            return self._rejection(ErrorCode.SHELTER_CLOSED, "The shelter is not accepting deliveries.")
-        if shelter.demand_remaining < request.quantity:
-            return self._rejection(
-                ErrorCode.SHELTER_DEMAND_EXCEEDED,
-                "The assignment exceeds the shelter's remaining demand.",
-                {"demand_remaining": shelter.demand_remaining, "requested": request.quantity},
-            )
-        if shelter.receiving_capacity_remaining < request.quantity:
-            return self._rejection(
-                ErrorCode.SHELTER_CAPACITY_EXCEEDED,
-                "The assignment exceeds the shelter's receiving capacity.",
-                {"capacity_remaining": shelter.receiving_capacity_remaining, "requested": request.quantity},
-            )
-        evaluated_rules.append("SHELTER_DEMAND_AND_CAPACITY_FIT")
-
-        # Hard constraint 4: Prerequisites check
-        missing = batch.item_rules.required_prerequisites - shelter.prerequisites
-        if missing:
-            return self._rejection(
-                ErrorCode.MISSING_PREREQUISITE,
-                "The shelter does not have all prerequisites for this supply.",
-                {"missing": sorted(missing)},
-            )
-        evaluated_rules.append("PREREQUISITES_SATISFIED")
-
-        # Hard constraint 5: Safe-handling deadline
-        safe_until = batch.item_rules.safe_until(batch.created_at)
-        estimated_arrival = now.replace(microsecond=0) + timedelta(
-            minutes=request.travel_minutes
-            + request.handoff_minutes
-            + batch.item_rules.safety_buffer_minutes
+        report = SafetyEngine.evaluate_feasibility(
+            batch=batch,
+            rider=rider,
+            shelter=shelter,
+            quantity=request.quantity,
+            travel_minutes=request.travel_minutes,
+            handoff_minutes=request.handoff_minutes,
+            now=now,
         )
-        if estimated_arrival > safe_until:
+
+        if not report.feasible:
             return self._rejection(
-                ErrorCode.SAFETY_DEADLINE_UNSAFE,
-                "The delivery cannot complete within the safe-handling deadline.",
-                {
-                    "estimated_completion": estimated_arrival.isoformat(),
-                    "safe_until": safe_until.isoformat(),
-                },
+                code=report.primary_failure_code or "DISPATCH_REJECTED",
+                reason=report.primary_failure_reason or "Assignment infeasible",
+                evidence=report.evidence,
             )
-        evaluated_rules.append("SAFETY_DEADLINE_SATISFIED")
 
-        evidence = {
-            "available_quantity": batch.available_quantity,
-            "rider_remaining_capacity": rider.remaining_capacity,
-            "shelter_demand_remaining": shelter.demand_remaining,
-            "shelter_receiving_capacity_remaining": shelter.receiving_capacity_remaining,
-            "estimated_completion": estimated_arrival.isoformat(),
-            "safe_until": safe_until.isoformat(),
-            "evaluated_rules": evaluated_rules,
-        }
+        return DispatchDecision(feasible=True, evidence=report.evidence)
 
-        return DispatchDecision(feasible=True, evidence=evidence)
+    def evaluate_safety(
+        self,
+        batch_id: str,
+        rider_id: str,
+        shelter_id: str,
+        quantity: int,
+        travel_minutes: int,
+        handoff_minutes: int,
+        is_route_accessible: bool = True,
+    ) -> SafetyEvaluationReport:
+        batch = self.batches.get(batch_id)
+        rider = self.riders.get(rider_id)
+        shelter = self.shelters.get(shelter_id)
+
+        if batch is None:
+            raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+        if rider is None:
+            raise EntityNotFoundError(ErrorCode.RIDER_NOT_FOUND, "Rider", rider_id)
+        if shelter is None:
+            raise EntityNotFoundError(ErrorCode.SHELTER_NOT_FOUND, "Shelter", shelter_id)
+
+        return SafetyEngine.evaluate_feasibility(
+            batch=batch,
+            rider=rider,
+            shelter=shelter,
+            quantity=quantity,
+            travel_minutes=travel_minutes,
+            handoff_minutes=handoff_minutes,
+            now=self.clock.now(),
+            is_route_accessible=is_route_accessible,
+        )
+
+    def calculate_safety_clock(
+        self,
+        batch_id: str,
+        shelter_id: str,
+        travel_minutes: int = 25,
+        handoff_minutes: int = 10,
+    ) -> LastSafeDecisionClock:
+        batch = self.batches.get(batch_id)
+        if batch is None:
+            raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+        shelter = self.shelters.get(shelter_id)
+        if shelter is None:
+            raise EntityNotFoundError(ErrorCode.SHELTER_NOT_FOUND, "Shelter", shelter_id)
+
+        return SafetyEngine.calculate_last_safe_decision(
+            batch=batch,
+            shelter_id=shelter_id,
+            travel_minutes=travel_minutes,
+            handoff_minutes=handoff_minutes,
+            now=self.clock.now(),
+        )
+
+    def generate_candidates(self, batch_id: str) -> CandidateGenerationResult:
+        batch = self.batches.get(batch_id)
+        if batch is None:
+            raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+
+        return CandidateEngine.generate_and_rank_candidates(
+            batch=batch,
+            riders=list(self.riders.values()),
+            shelters=list(self.shelters.values()),
+            now=self.clock.now(),
+        )
 
     def commit(self, request: DispatchRequest, actor: str = "dispatcher") -> Allocation:
         now = request.now or self.clock.now()

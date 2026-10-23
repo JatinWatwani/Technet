@@ -28,6 +28,9 @@ from .domain.schemas import (
     AllocationResponseSchema,
     BatchCreateSchema,
     BatchResponseSchema,
+    BatchSplitPlanSchema,
+    CandidateAssignmentSchema,
+    CandidateGenerationResponseSchema,
     ClockAdvanceSchema,
     ClockResponseSchema,
     CompensatingAdjustmentSchema,
@@ -38,11 +41,15 @@ from .domain.schemas import (
     InventoryBalanceSnapshotSchema,
     InventoryLedgerEntryResponseSchema,
     ItemRulesSchema,
+    LastSafeDecisionClockResponseSchema,
     OperationalEventResponseSchema,
     ReconciliationReportResponseSchema,
     RiderCreateSchema,
     RiderResponseSchema,
     RiderStatusUpdateSchema,
+    RuleEvaluationResultSchema,
+    SafetyEvaluationReportResponseSchema,
+    SafetyEvaluationRequestSchema,
     ShelterCreateSchema,
     ShelterDemandUpdateSchema,
     ShelterResponseSchema,
@@ -407,6 +414,64 @@ def update_shelter_demand(shelter_id: str, payload: ShelterDemandUpdateSchema) -
 # -----------------------------------------------------------------------------
 # Dispatch Endpoints (Preview & Commit)
 # -----------------------------------------------------------------------------
+
+@app.post("/v1/dispatch/candidates", response_model=CandidateGenerationResponseSchema)
+def generate_dispatch_candidates(batch_id: str = Query(...)) -> CandidateGenerationResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        result = service.generate_candidates(batch_id=batch_id)
+        return CandidateGenerationResponseSchema(**result.to_dict())
+    except VigiloError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.to_dict()) from exc
+
+
+@app.get("/v1/batches/{batch_id}/safety-clock", response_model=LastSafeDecisionClockResponseSchema)
+def get_safety_clock(
+    batch_id: str,
+    shelter_id: str = Query(...),
+    travel_minutes: int = Query(default=25, ge=0),
+    handoff_minutes: int = Query(default=10, ge=0),
+) -> LastSafeDecisionClockResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        clock = service.calculate_safety_clock(
+            batch_id=batch_id,
+            shelter_id=shelter_id,
+            travel_minutes=travel_minutes,
+            handoff_minutes=handoff_minutes,
+        )
+        return LastSafeDecisionClockResponseSchema(**clock.to_dict())
+    except VigiloError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.to_dict()) from exc
+
+
+@app.post("/v1/safety/evaluate", response_model=SafetyEvaluationReportResponseSchema)
+def evaluate_safety_constraints(payload: SafetyEvaluationRequestSchema) -> SafetyEvaluationReportResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        report = service.evaluate_safety(
+            batch_id=payload.batch_id,
+            rider_id=payload.rider_id,
+            shelter_id=payload.shelter_id,
+            quantity=payload.quantity,
+            travel_minutes=payload.travel_minutes,
+            handoff_minutes=payload.handoff_minutes,
+            is_route_accessible=payload.is_route_accessible,
+        )
+        return SafetyEvaluationReportResponseSchema(
+            feasible=report.feasible,
+            primary_failure_code=report.primary_failure_code,
+            primary_failure_reason=report.primary_failure_reason,
+            evaluated_rules=report.evaluated_rules,
+            evidence=report.evidence,
+            rule_results=[RuleEvaluationResultSchema(**r.__dict__) for r in report.rule_results],
+        )
+    except VigiloError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.to_dict()) from exc
+
 
 @app.post("/v1/dispatch/preview", response_model=DispatchPreviewResponseSchema)
 def preview_dispatch(payload: DispatchPayloadSchema) -> DispatchPreviewResponseSchema:
