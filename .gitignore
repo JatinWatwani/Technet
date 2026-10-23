@@ -6,3 +6,12 @@ __pycache__/
 *.egg-info/
 *.pyc
 *.db
+
+# Frontend & Node
+node_modules/
+dist/
+frontend/node_modules/
+frontend/dist/
+dash insp web/
+*.log
+.DS_Store
