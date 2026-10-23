@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Icon } from '../Icon'
+import { LandingHeroMap } from './LandingHeroMap'
 
 interface VigilioLandingPageProps {
   onEnterDashboard: (tab?: string) => void
@@ -230,41 +231,7 @@ export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps
           </div>
 
           <div className="dark-forest-right">
-            {/* Photo Card with Floating Glass Overlay */}
-            <div className="forest-photo-card">
-              <div className="photo-backdrop">
-                <div className="coordinator-avatar-badge">
-                  <Icon name="bike" size={24} />
-                </div>
-                <div className="photo-info-strip">
-                  <strong>Vikram Sharma</strong>
-                  <span>Rapid Relief Lead • Sector 4 Corridor</span>
-                </div>
-              </div>
-
-              {/* Floating Instant Conversion / Custody Card */}
-              <motion.div
-                className="floating-custody-card"
-                animate={{ y: [0, -8, 0] }}
-                transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-              >
-                <div className="custody-card-top">
-                  <span className="custody-chip">
-                    <Icon name="zap" size={13} />
-                    <span>Real-Time Divert</span>
-                  </span>
-                  <span className="custody-pct text-green">+40 Meals</span>
-                </div>
-                <div className="custody-card-body">
-                  <small>Auto-Reroute Activated</small>
-                  <strong>Relief Camp B (Capacity 138)</strong>
-                </div>
-                <div className="custody-time-row">
-                  <span>Bio-Safe Buffer: <strong>19m remaining</strong></span>
-                  <span className="verified-badge">✓ Verified</span>
-                </div>
-              </motion.div>
-            </div>
+            <LandingHeroMap onOpenFullMap={() => onEnterDashboard('map')} />
           </div>
         </div>
       </section>

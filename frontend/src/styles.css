@@ -5557,42 +5557,323 @@ svg { display: block; }
 }
 
 /* Photo Card & Floating Overlay */
-.forest-photo-card {
+/* Real-time Hero Map & Live Telemetry HUD */
+.landing-hero-map-wrapper {
   position: relative;
   border-radius: 28px;
   overflow: visible;
+  height: 420px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 1.5px rgba(24, 184, 128, 0.35);
 }
 
-.photo-backdrop {
-  height: 380px;
+.landing-leaflet-container {
   border-radius: 28px;
-  background: linear-gradient(135deg, #12372c 0%, #0d2921 100%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 24px;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  background: #081d17;
 }
 
-.coordinator-avatar-badge {
-  width: 56px;
-  height: 56px;
+/* Sophisticated dark/emerald tile filter to blend with deep forest theme */
+.landing-leaflet-tile {
+  filter: brightness(0.7) invert(1) contrast(1.7) hue-rotate(115deg) saturate(0.65);
+}
+
+/* Top-Left HUD (Coordinator Badge) */
+.landing-map-top-left-hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 8px 10px;
+  border-radius: 999px;
+  background: rgba(7, 26, 20, 0.88);
+  border: 1px solid rgba(24, 184, 128, 0.4);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+
+.landing-map-top-left-hud .coordinator-avatar-badge {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: #18B880;
   color: #ffffff;
   display: grid;
   place-items: center;
+  box-shadow: 0 0 12px rgba(24, 184, 128, 0.6);
 }
 
-.photo-info-strip strong {
+.landing-map-top-left-hud .photo-info-strip strong {
   display: block;
-  font-size: 16px;
+  font-size: 13.5px;
   color: #ffffff;
+  line-height: 1.2;
 }
 
-.photo-info-strip span {
-  font-size: 12px;
+.landing-map-top-left-hud .photo-info-strip span {
+  font-size: 11px;
   color: #18B880;
+  font-weight: 600;
+}
+
+/* Top-Right HUD (Telemetry & Full Map CTA) */
+.landing-map-top-right-hud {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.landing-radar-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(7, 26, 20, 0.88);
+  border: 1px solid rgba(24, 184, 128, 0.4);
+  color: #18B880;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(12px);
+}
+
+.live-radar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #18B880;
+  box-shadow: 0 0 8px #18B880;
+  animation: radarBlink 1.4s infinite ease-in-out;
+}
+
+@keyframes radarBlink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+.landing-coords-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(14, 20, 18, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #a7b3ad;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  backdrop-filter: blur(12px);
+}
+
+.badge-speed {
+  color: #F9771D;
+  font-weight: 700;
+}
+
+.landing-expand-map-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(24, 184, 128, 0.2);
+  border: 1px solid #18B880;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(12px);
+}
+
+.landing-expand-map-btn:hover {
+  background: #18B880;
+  transform: translateY(-1px);
+}
+
+/* Enhanced Floating Custody Card */
+.landing-custody-card-enhanced {
+  z-index: 550;
+  bottom: -28px;
+  left: 20px;
+  width: 330px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(24, 184, 128, 0.25);
+}
+
+.custody-alert-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(249, 119, 29, 0.12);
+  border: 1px solid rgba(249, 119, 29, 0.3);
+}
+
+.custody-alert-callout .callout-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.custody-alert-callout .callout-text {
+  font-size: 10.5px;
+  color: #e5e5e5;
+  line-height: 1.35;
+}
+
+/* Leaflet Custom Marker Styling */
+.landing-pin-origin,
+.landing-pin-shelter,
+.landing-courier-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.pin-core {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  position: relative;
+  z-index: 2;
+}
+
+.pin-core-green {
+  background: #047857;
+  border: 2px solid #10b981;
+}
+
+.pin-core-red {
+  background: #991b1b;
+  border: 2px solid #ef4444;
+}
+
+.pin-core-emerald {
+  background: #065f46;
+  border: 2px solid #34d399;
+}
+
+.pin-pulse {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  opacity: 0.75;
+  animation: pulseBeacon 2s infinite ease-out;
+  z-index: 1;
+}
+
+.pin-pulse-green { background: rgba(16, 185, 129, 0.35); }
+.pin-pulse-red { background: rgba(239, 68, 68, 0.45); }
+.pin-pulse-emerald { background: rgba(52, 211, 153, 0.45); }
+
+@keyframes pulseBeacon {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.pin-label,
+.pin-label-warning,
+.pin-label-emerald {
+  position: absolute;
+  top: 36px;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  z-index: 3;
+}
+
+.pin-label {
+  background: rgba(6, 78, 59, 0.9);
+  color: #a7f3d0;
+  border: 1px solid #10b981;
+}
+
+.pin-label-warning {
+  background: rgba(127, 29, 29, 0.9);
+  color: #fecaca;
+  border: 1px solid #ef4444;
+}
+
+.pin-label-emerald {
+  background: rgba(6, 95, 70, 0.9);
+  color: #6ee7b7;
+  border: 1px solid #34d399;
+}
+
+.landing-courier-marker {
+  width: 40px;
+  height: 40px;
+}
+
+.courier-vehicle-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #18B880;
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  box-shadow: 0 0 16px rgba(24, 184, 128, 0.8), 0 4px 12px rgba(0,0,0,0.5);
+  border: 2px solid #ffffff;
+  position: relative;
+  z-index: 2;
+}
+
+.courier-radar-pulse {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(24, 184, 128, 0.35);
+  animation: radarGlider 1.8s infinite ease-out;
+  z-index: 1;
+}
+
+@keyframes radarGlider {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+.courier-tag-badge {
+  position: absolute;
+  top: 38px;
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(17, 24, 21, 0.95);
+  color: #34d399;
+  border: 1px solid #10b981;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+  z-index: 3;
+}
+
+.glowing-reroute-polyline {
+  filter: drop-shadow(0 0 6px #10b981);
 }
 
 .floating-custody-card {
