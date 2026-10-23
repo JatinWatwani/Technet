@@ -1,22 +1,29 @@
 import { Icon } from '../Icon'
+import type { Incident } from '../../api/client'
 
 interface AlertsBentoCardProps {
   waterOnline: boolean
   onToggleWater: () => void
   onOpenAlertsTable: () => void
+  incidents?: Incident[]
 }
 
 export function AlertsBentoCard({
   waterOnline,
   onToggleWater,
   onOpenAlertsTable,
+  incidents = [],
 }: AlertsBentoCardProps) {
+  const highCount = incidents.filter((i) => i.severity === 'HIGH' || i.severity === 'CRITICAL').length
+  const medCount = incidents.filter((i) => i.severity === 'MEDIUM').length
+  const lowCount = incidents.filter((i) => i.severity === 'LOW').length
+  const activeCount = incidents.filter((i) => i.status !== 'RESOLVED').length
+
   const ALERT_LEVELS = [
-    { label: 'High', color: '#CE6969', value: 23, countSegments: 18, filledSegments: 14 },
-    { label: 'Medium', color: '#F9771D', value: 15, countSegments: 18, filledSegments: 10 },
-    { label: 'Neutral', color: '#B4B6A6', value: '-', countSegments: 18, filledSegments: 0 },
-    { label: 'Low', color: '#18B880', value: 8, countSegments: 18, filledSegments: 6 },
-    { label: 'Errors', color: '#CE6969', value: 3, countSegments: 18, filledSegments: 4 },
+    { label: 'Critical / High', color: '#CE6969', value: incidents.length > 0 ? highCount : 3, countSegments: 18, filledSegments: Math.min(18, highCount * 3 || 6) },
+    { label: 'Medium', color: '#F9771D', value: incidents.length > 0 ? medCount : 5, countSegments: 18, filledSegments: Math.min(18, medCount * 2 || 4) },
+    { label: 'Low', color: '#18B880', value: incidents.length > 0 ? lowCount : 1, countSegments: 18, filledSegments: Math.min(18, lowCount || 2) },
+    { label: 'Active Alerts', color: '#CE6969', value: incidents.length > 0 ? activeCount : 3, countSegments: 18, filledSegments: Math.min(18, activeCount * 3 || 6) },
   ]
 
   return (

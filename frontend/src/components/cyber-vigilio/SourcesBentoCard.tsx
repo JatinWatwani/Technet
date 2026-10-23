@@ -1,44 +1,61 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Icon } from '../Icon'
+import type { Batch } from '../../api/client'
 
 interface SourcesBentoCardProps {
   onSplitBatch: () => void
   splitComplete: boolean
+  batches?: Batch[]
 }
 
-export function SourcesBentoCard({ onSplitBatch, splitComplete }: SourcesBentoCardProps) {
+export function SourcesBentoCard({ onSplitBatch, splitComplete, batches = [] }: SourcesBentoCardProps) {
   const [activeSlide, setActiveSlide] = useState(0)
 
-  const SOURCES = [
-    {
-      id: 'cooked',
-      name: 'Cooked Meals (Banquet Hall A)',
-      code: 'XDR Agent',
-      count: 37,
-      subtext: '48m safe window · splits across 5 riders',
-      icon: 'box',
-      accent: '#6E62D8',
-    },
-    {
-      id: 'insulin',
-      name: 'Cold-Chain Insulin (Pharmacy)',
-      code: 'XDR Analytics BIOS',
-      count: 29,
-      subtext: 'Cold-chain verified · 2 escort riders',
-      icon: 'shield',
-      accent: '#3999CE',
-    },
-    {
-      id: 'rations',
-      name: 'Raw Ration Kits (Hostel Mess)',
-      code: 'XDR BIOS',
-      count: 18,
-      subtext: 'Needs clean water + cooking fuel',
-      icon: 'layers',
-      accent: '#329A6E',
-    },
-  ]
+  // Use real backend batches if available, otherwise fallback
+  const displaySources = batches.length > 0
+    ? batches.slice(0, 4).map((b, i) => {
+        const accents = ['#6E62D8', '#3999CE', '#329A6E', '#F9771D']
+        const icons = ['box', 'shield', 'layers', 'box']
+        return {
+          id: b.id,
+          name: b.item_type.replace(/_/g, ' ').toUpperCase(),
+          code: b.id,
+          count: b.available_quantity,
+          subtext: `${b.item_rules.safe_handling_minutes}m safe window · ${b.item_rules.storage_requirement}`,
+          icon: icons[i % icons.length],
+          accent: accents[i % accents.length],
+        }
+      })
+    : [
+        {
+          id: 'cooked',
+          name: 'Cooked Meals (Banquet Hall A)',
+          code: 'XDR Agent',
+          count: 37,
+          subtext: '48m safe window · splits across 5 riders',
+          icon: 'box',
+          accent: '#6E62D8',
+        },
+        {
+          id: 'insulin',
+          name: 'Cold-Chain Insulin (Pharmacy)',
+          code: 'XDR Analytics BIOS',
+          count: 29,
+          subtext: 'Cold-chain verified · 2 escort riders',
+          icon: 'shield',
+          accent: '#3999CE',
+        },
+        {
+          id: 'rations',
+          name: 'Raw Ration Kits (Hostel Mess)',
+          code: 'XDR BIOS',
+          count: 18,
+          subtext: 'Needs clean water + cooking fuel',
+          icon: 'layers',
+          accent: '#329A6E',
+        },
+      ]
 
   return (
     <div className="cyber-bento-card card-sources">
@@ -60,7 +77,7 @@ export function SourcesBentoCard({ onSplitBatch, splitComplete }: SourcesBentoCa
 
       {/* Sources List */}
       <div className="sources-list">
-        {SOURCES.map((s) => (
+        {displaySources.map((s) => (
           <div key={s.id} className="source-row-item">
             <div className="source-left">
               <span className="source-icon-wrap" style={{ color: s.accent }}>

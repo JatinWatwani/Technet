@@ -1,12 +1,23 @@
 import { Icon } from '../Icon'
+import { Rider } from '../../api/client'
 
 interface AssetsBentoCardProps {
   onSelectAsset?: (id: string) => void
   onOpenFleetMap?: () => void
+  riders?: Rider[]
 }
 
-export function AssetsBentoCard({ onSelectAsset, onOpenFleetMap }: AssetsBentoCardProps) {
-  const FLEET_ASSETS = [
+export function AssetsBentoCard({ onSelectAsset, onOpenFleetMap, riders }: AssetsBentoCardProps) {
+  const liveRiderAssets = riders && riders.length > 0 ? riders.slice(0, 3).map((r, idx) => ({
+    id: r.id,
+    code: `r-${idx + 1}`,
+    name: `Courier #${r.id.replace('rider_', '')} (${r.status})`,
+    status: r.status === 'AVAILABLE' ? 'active' : r.status === 'IN_TRANSIT' ? 'rerouted' : 'recovery',
+    buffer: `Cap: ${r.remaining_capacity}/${r.capacity}`,
+    progress: Math.round(((r.capacity - r.remaining_capacity) / r.capacity) * 100),
+  })) : null
+
+  const FLEET_ASSETS = liveRiderAssets || [
     {
       id: 'rider-14',
       code: 'pc1',
@@ -86,8 +97,8 @@ export function AssetsBentoCard({ onSelectAsset, onOpenFleetMap }: AssetsBentoCa
         </div>
 
         <div className="assets-big-count">
-          <span className="count-number">12</span>
-          <span className="count-label">New</span>
+          <span className="count-number">{riders && riders.length > 0 ? riders.length : 12}</span>
+          <span className="count-label">Fleet</span>
         </div>
       </div>
     </div>

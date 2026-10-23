@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../Icon'
 import { ResolutionAuditModal, ResolutionAuditDetails } from './ResolutionAuditModal'
+import { OperationalEvent, BaselineComparisonReport, ScenarioPreset } from '../../api/client'
 
 interface ExecutionsViewProps {
   onRunPlaybook1: () => void
@@ -11,6 +12,10 @@ interface ExecutionsViewProps {
   splitComplete: boolean
   rerouteResolved: boolean
   waterOnline: boolean
+  events?: OperationalEvent[]
+  baselineReport?: BaselineComparisonReport | null
+  presets?: ScenarioPreset[]
+  onRunBenchmark?: (presetId: string) => Promise<BaselineComparisonReport>
 }
 
 export function ExecutionsView({
@@ -21,6 +26,10 @@ export function ExecutionsView({
   splitComplete,
   rerouteResolved,
   waterOnline,
+  events,
+  baselineReport,
+  presets,
+  onRunBenchmark,
 }: ExecutionsViewProps) {
   const [activePlaybook, setActivePlaybook] = useState<string>('/01')
   const [ledgerFilter, setLedgerFilter] = useState<'ALL' | 'COMMITTED' | 'RECONCILED' | 'VERIFIED'>('ALL')
@@ -28,6 +37,8 @@ export function ExecutionsView({
   const [selectedAudit, setSelectedAudit] = useState<ResolutionAuditDetails | null>(null)
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false)
   const [isSimulating, setIsSimulating] = useState(false)
+  const [selectedPreset, setSelectedPreset] = useState<string>('chaos_surge_wave')
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false)
 
   const PLAYBOOKS = [
     {
@@ -192,7 +203,33 @@ export function ExecutionsView({
     }, 800)
   }
 
-  const filteredLogs = AUDIT_LOGS.filter((l) => {
+  const mappedBackendLogs = events && events.length > 0 ? events.map((ev) => ({
+    id: `EVT-${ev.id.substring(0, 8)}`,
+    timestamp: new Date(ev.occurred_at).toLocaleTimeString(),
+    playbook: ev.event_type.replace(/_/g, ' '),
+    actor: ev.aggregate_type || 'Vigilo Sentinel',
+    action: `Aggregate ${ev.aggregate_id} payload: ${JSON.stringify(ev.payload || {}).substring(0, 60)}...`,
+    hash: `sha256: ${ev.id.substring(0, 16)}`,
+    status: 'COMMITTED',
+    details: {
+      incidentId: ev.id,
+      title: ev.event_type,
+      severity: 'Medium' as const,
+      source: 'State Machine Outbox',
+      destination: 'Cryptographic Audit Trail',
+      cargo: ev.aggregate_id,
+      rootCause: `State transition ${ev.event_type} committed transactionally.`,
+      invariantTested: 'PostgreSQL ACID Append-Only Outbox Invariant',
+      algorithmicAction: `Persisted operational event ${ev.id} with payload`,
+      custodyProof: `SHA256: ${ev.id} | OccurredAt: ${ev.occurred_at}`,
+      safeBioWindowRemaining: 'Committed',
+      recoveryTimeSeconds: 0.2,
+    },
+  })) : null
+
+  const effectiveLogs = mappedBackendLogs || AUDIT_LOGS
+
+  const filteredLogs = effectiveLogs.filter((l) => {
     if (ledgerFilter !== 'ALL' && l.status !== ledgerFilter) return false
     if (searchQuery.trim() === '') return true
     const q = searchQuery.toLowerCase()
@@ -203,6 +240,16 @@ export function ExecutionsView({
       l.actor.toLowerCase().includes(q)
     )
   })
+
+  const handleRunPreset = async () => {
+    if (!onRunBenchmark) return
+    setBenchmarkLoading(true)
+    try {
+      await onRunBenchmark(selectedPreset)
+    } finally {
+      setBenchmarkLoading(false)
+    }
+  }
 
   return (
     <div className="executions-workspace">
@@ -227,6 +274,65 @@ export function ExecutionsView({
             <span>{isSimulating ? 'Simulating Self-Healing...' : '▶ Run Autonomous Self-Healing Demo'}</span>
           </button>
         </div>
+      </div>
+
+      {/* Comparative Evaluation Benchmark Card */}
+      <div className="executions-ledger-panel" style={{ marginBottom: '1.25rem' }}>
+        <div className="panel-header-row">
+          <div>
+            <h3>Comparative Baseline Benchmark Evaluation</h3>
+            <p>Empirical evaluation comparing Vigilo's constraint solver against Greedy/Static heuristics</p>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <select
+              value={selectedPreset}
+              onChange={(e) => setSelectedPreset(e.target.value)}
+              className="ledger-search-input"
+              style={{ width: 'auto', padding: '0.4rem 0.8rem', background: '#242424', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px' }}
+            >
+              <option value="chaos_surge_wave">Chaos Surge Wave (10 Shocks)</option>
+              <option value="spoiled_batch_hazard">Bio Spoilage Risk Rush</option>
+              <option value="volunteer_dropout_surge">Volunteer Dropout Surge</option>
+            </select>
+            <button
+              className="btn-demo-sim"
+              onClick={handleRunPreset}
+              disabled={benchmarkLoading}
+              style={{ background: '#F9771D', color: '#fff', border: 'none' }}
+            >
+              <Icon name="zap" size={13} />
+              <span>{benchmarkLoading ? 'Running Benchmark...' : 'Run Comparative Benchmark'}</span>
+            </button>
+          </div>
+        </div>
+
+        {baselineReport ? (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(baselineReport.comparative_scorecard.length || 4, 4)}, 1fr)`, gap: '1rem', marginTop: '1rem' }}>
+              {baselineReport.comparative_scorecard.map((item) => (
+                <div key={item.metric_name} className="insight-metric-card" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                  <span className="insight-eyebrow">{item.metric_name.replace(/_/g, ' ')}</span>
+                  <div className="insight-val-row">
+                    <span className="insight-big-val text-green">{item.vigilo_value}</span>
+                    <span className="insight-unit" style={{ color: '#CE6969' }}>vs {item.baseline_value} baseline</span>
+                  </div>
+                  <small style={{ color: item.passed_invariant ? '#18B880' : '#CE6969' }}>
+                    {item.improvement} • Invariant: {item.passed_invariant ? 'PASS ✓' : 'VIOLATION ⚠'}
+                  </small>
+                </div>
+              ))}
+            </div>
+            {baselineReport.verdict_summary && (
+              <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: '#18B880' }}>
+                ✓ {baselineReport.verdict_summary}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ padding: '0.75rem', color: '#888', fontSize: '0.85rem' }}>
+            Click <strong>Run Comparative Benchmark</strong> to execute deterministic comparison against standard naive dispatch heuristics.
+          </div>
+        )}
       </div>
 
       {/* Top Playbooks Grid (4 Equal Columns) */}

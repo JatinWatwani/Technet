@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../Icon'
 import { ResolutionAuditModal, ResolutionAuditDetails } from './ResolutionAuditModal'
 
+import { Incident } from '../../api/client'
+
 export interface AlertRecord {
   id: string
   severity: 'Critical' | 'High' | 'Medium' | 'Low'
@@ -20,6 +22,7 @@ interface AlertsTableModalProps {
   isOpen: boolean
   onClose: () => void
   onResolve: (id: string) => void
+  incidents?: Incident[]
 }
 
 const INITIAL_RECORDS: AlertRecord[] = [
@@ -149,12 +152,41 @@ const AUDIT_PROOFS: Record<string, ResolutionAuditDetails> = {
   },
 }
 
-export function AlertsTableModal({ isOpen, onClose, onResolve }: AlertsTableModalProps) {
-  const [records, setRecords] = useState<AlertRecord[]>(INITIAL_RECORDS)
+export function AlertsTableModal({ isOpen, onClose, onResolve, incidents }: AlertsTableModalProps) {
+  const mapIncidentsToRecords = (list?: Incident[]): AlertRecord[] => {
+    if (!list || list.length === 0) return INITIAL_RECORDS
+    return list.map((inc) => ({
+      id: inc.id,
+      severity: (inc.severity === 'CRITICAL'
+        ? 'Critical'
+        : inc.severity === 'HIGH'
+        ? 'High'
+        : inc.severity === 'MEDIUM'
+        ? 'Medium'
+        : 'Low') as any,
+      source: (inc.evidence as any)?.donor_id || (inc.evidence as any)?.source || 'Hub Origin',
+      destination: (inc.evidence as any)?.shelter_id || (inc.evidence as any)?.destination || 'Relief Shelter',
+      cargo: (inc.evidence as any)?.cargo || (inc.reason_code ? inc.reason_code.replace(/_/g, ' ') : 'Consignment Aid'),
+      custodyStatus: inc.status === 'RESOLVED' ? '✓ Resolved' : inc.status || 'ACTIVE',
+      buffer: (inc.evidence as any)?.safe_buffer ? `${(inc.evidence as any).safe_buffer}m safe window` : 'Monitored',
+      actionNeeded: (inc.evidence as any)?.recommended_action || (inc.reason_code === 'SHELTER_OVERFLOW' ? 'Reroute to Relief Camp B' : 'Verify & Resolve'),
+      isResolved: inc.status === 'RESOLVED',
+      resolutionNote: inc.description,
+    }))
+  }
+
+  const [records, setRecords] = useState<AlertRecord[]>(() => mapIncidentsToRecords(incidents))
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSev, setSelectedSev] = useState<string>('All')
   const [auditDetails, setAuditDetails] = useState<ResolutionAuditDetails | null>(null)
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false)
+
+  // Sync if incidents change
+  useState(() => {
+    if (incidents && incidents.length > 0) {
+      setRecords(mapIncidentsToRecords(incidents))
+    }
+  })
 
   if (!isOpen) return null
 

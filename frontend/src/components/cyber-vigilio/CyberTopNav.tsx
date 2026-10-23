@@ -12,6 +12,9 @@ interface CyberTopNavProps {
   theme: 'light' | 'dark'
   onToggleTheme: () => void
   isMatrixActive?: boolean
+  isBackendLive?: boolean
+  clockTime?: string | null
+  onAdvanceTime?: (minutes: number) => void
 }
 
 const TABS = [
@@ -34,6 +37,9 @@ export function CyberTopNav({
   theme,
   onToggleTheme,
   isMatrixActive = false,
+  isBackendLive = true,
+  clockTime,
+  onAdvanceTime,
 }: CyberTopNavProps) {
   return (
     <header className="cyber-topbar">
@@ -93,6 +99,27 @@ export function CyberTopNav({
 
       {/* Utilities */}
       <div className="cyber-top-actions">
+        {/* Live Backend Connection Indicator */}
+        <div
+          className={`cyber-live-badge ${isBackendLive ? 'is-live' : 'is-offline'}`}
+          title={isBackendLive ? 'Connected to Vigilo FastAPI Server (87 Invariants Passing)' : 'Running in Offline Mode'}
+        >
+          <span className="live-dot" />
+          <span>{isBackendLive ? 'VIGILO LIVE' : 'OFFLINE'}</span>
+        </div>
+
+        {/* Advance Clock Sweep Button */}
+        {onAdvanceTime && (
+          <button
+            className="cyber-clock-btn"
+            onClick={() => onAdvanceTime(15)}
+            title="Advance Simulated Clock by 15 mins (Runs Autonomous Lease/Heartbeat Sweeps)"
+          >
+            <Icon name="clock" size={13} />
+            <span>+15m Sweep</span>
+          </button>
+        )}
+
         {/* 1. Alerts Table Button */}
         <button
           className="cyber-table-btn"

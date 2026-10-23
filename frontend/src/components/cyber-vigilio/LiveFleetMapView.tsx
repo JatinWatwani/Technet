@@ -1,28 +1,38 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../Icon'
+import { Shelter, Rider } from '../../api/client'
 
 interface LiveFleetMapViewProps {
   onTriggerReroute: () => void
   rerouteResolved: boolean
+  shelters?: Shelter[]
+  riders?: Rider[]
 }
 
 export function LiveFleetMapView({
   onTriggerReroute,
   rerouteResolved,
+  shelters,
+  riders,
 }: LiveFleetMapViewProps) {
   const [selectedCourier, setSelectedCourier] = useState<string | null>('courier-07')
   const [selectedShelter, setSelectedShelter] = useState<string | null>(null)
   const [mapFilter, setMapFilter] = useState<'all' | 'couriers' | 'shelters'>('all')
 
+  // Live shelter lookup from backend if available
+  const shelterCentral = shelters?.find((s) => s.id === 'shelter_central' || s.name.includes('Central'))
+  const shelterEast = shelters?.find((s) => s.id === 'shelter_eastside' || s.name.includes('East'))
+  const shelterNorth = shelters?.find((s) => s.id === 'shelter_north' || s.name.includes('North'))
+
   // Shelter nodes across the city grid
   const SHELTERS = [
     {
       id: 'shelter-a',
-      name: 'Shelter A (North Hub)',
-      current: 50,
-      capacity: 50,
-      status: 'Critical · Capacity Capped at 50/50',
+      name: shelterNorth?.name || 'Shelter A (North Hub)',
+      current: shelterNorth?.demand_remaining ?? 50,
+      capacity: shelterNorth?.receiving_capacity_remaining ?? 50,
+      status: shelterNorth?.status === 'CLOSED' ? 'CLOSED · Overflow divert triggered' : 'Critical · Capacity Capped at 50/50',
       x: 320,
       y: 90,
       isWarning: true,
@@ -31,9 +41,9 @@ export function LiveFleetMapView({
     },
     {
       id: 'shelter-b',
-      name: 'Relief Camp B (Fallback Hub)',
-      current: rerouteResolved ? 58 : 18,
-      capacity: 138,
+      name: shelterEast?.name || 'Relief Camp B (Fallback Hub)',
+      current: rerouteResolved ? (shelterEast?.demand_remaining ?? 58) : 18,
+      capacity: shelterEast?.receiving_capacity_remaining ?? 138,
       status: rerouteResolved ? 'Committed: +40 Meals Received' : 'Available · Receiving Hub',
       x: 620,
       y: 280,
@@ -153,13 +163,13 @@ export function LiveFleetMapView({
             className={`map-filter-btn ${mapFilter === 'couriers' ? 'is-active' : ''}`}
             onClick={() => setMapFilter('couriers')}
           >
-            Volunteer Couriers (3)
+            Volunteer Couriers ({riders && riders.length > 0 ? riders.length : 3})
           </button>
           <button
             className={`map-filter-btn ${mapFilter === 'shelters' ? 'is-active' : ''}`}
             onClick={() => setMapFilter('shelters')}
           >
-            Shelter Capacities (4)
+            Shelter Capacities ({shelters && shelters.length > 0 ? shelters.length : 4})
           </button>
         </div>
       </div>

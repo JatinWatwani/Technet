@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../Icon'
 import { CyberOrbitalHud } from './CyberOrbitalHud'
 import { CyberLiveFeed } from './CyberLiveFeed'
+import { Incident } from '../../api/client'
 
 interface DarkHeroStageProps {
   onBackToOverview?: () => void
@@ -13,6 +14,7 @@ interface DarkHeroStageProps {
   onResolveIncident?: (id: string) => void
   onSelectSeverity?: (sev: string) => void
   onOpenMap?: () => void
+  incidents?: Incident[]
 }
 
 export function DarkHeroStage({
@@ -24,12 +26,18 @@ export function DarkHeroStage({
   onResolveIncident,
   onSelectSeverity,
   onOpenMap,
+  incidents,
 }: DarkHeroStageProps) {
   const [selectedSev, setSelectedSev] = useState<string>('all')
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false)
   const [isViewMenuOpen, setIsViewMenuOpen] = useState<boolean>(false)
 
-  const SEVERITY_BADGES = [
+  const SEVERITY_BADGES = incidents && incidents.length > 0 ? [
+    { label: 'C', count: incidents.filter((i) => i.severity === 'CRITICAL' && i.status !== 'RESOLVED').length, name: 'Critical' },
+    { label: 'H', count: incidents.filter((i) => i.severity === 'HIGH' && i.status !== 'RESOLVED').length, name: 'High' },
+    { label: 'M', count: incidents.filter((i) => i.severity === 'MEDIUM' && i.status !== 'RESOLVED').length, name: 'Medium' },
+    { label: 'L', count: incidents.filter((i) => i.severity === 'LOW' && i.status !== 'RESOLVED').length, name: 'Low' },
+  ] : [
     { label: 'C', count: 3, name: 'Critical' },
     { label: 'H', count: 2, name: 'High' },
     { label: 'M', count: 5, name: 'Medium' },
@@ -209,6 +217,7 @@ export function DarkHeroStage({
           rerouteResolved={rerouteResolved}
           onTriggerReroute={onTriggerReroute}
           onResolveIncident={onResolveIncident}
+          backendIncidents={incidents}
         />
       </div>
     </section>

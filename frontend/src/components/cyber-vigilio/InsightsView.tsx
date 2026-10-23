@@ -1,11 +1,25 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Icon } from '../Icon'
+import { SystemMetrics, Shelter } from '../../api/client'
 
-export function InsightsView() {
+interface InsightsViewProps {
+  metrics?: SystemMetrics | null
+  shelters?: Shelter[]
+}
+
+export function InsightsView({ metrics, shelters }: InsightsViewProps) {
   const [activeCurve, setActiveCurve] = useState<'all' | 'cooked' | 'insulin' | 'rations'>('all')
 
-  const SHELTERS = [
+  const liveShelters = shelters && shelters.length > 0 ? shelters.map((s) => ({
+    name: s.name,
+    current: s.demand_remaining,
+    capacity: s.receiving_capacity_remaining,
+    status: s.status === 'CLOSED' ? 'CLOSED · Overflow' : `${s.demand_remaining >= s.receiving_capacity_remaining ? 'Full' : 'Available'}`,
+    color: s.demand_remaining >= s.receiving_capacity_remaining ? '#CE6969' : '#18B880',
+  })) : null
+
+  const SHELTERS = liveShelters || [
     { name: 'Shelter A (Primary)', current: 50, capacity: 50, status: 'Full · Over capacity', color: '#CE6969' },
     { name: 'Relief Camp B (Fallback)', current: 58, capacity: 138, status: 'Healthy · Available', color: '#18B880' },
     { name: 'Shelter C (Cooking Station)', current: 65, capacity: 100, status: 'Water Sentinel Active', color: '#F9771D' },
@@ -55,37 +69,37 @@ export function InsightsView() {
         <div className="insight-metric-card">
           <span className="insight-eyebrow">Zero Spoilage Rate</span>
           <div className="insight-val-row">
-            <span className="insight-big-val text-green">100%</span>
+            <span className="insight-big-val text-green">{metrics ? (metrics.inventory_spoiled_units === 0 ? '100%' : `${Math.round((1 - metrics.inventory_spoiled_units / Math.max(metrics.deliveries_completed, 1)) * 100)}%`) : '100%'}</span>
             <span className="insight-unit">Safe Handoff</span>
           </div>
-          <small>4,700 units delivered inside biological safety window</small>
+          <small>{metrics ? `${metrics.deliveries_completed} deliveries verified inside biological window` : '4,700 units delivered inside biological safety window'}</small>
         </div>
 
         <div className="insight-metric-card">
-          <span className="insight-eyebrow">Mean Solver Latency</span>
+          <span className="insight-eyebrow">Active Allocations</span>
           <div className="insight-val-row">
-            <span className="insight-big-val">1.6s</span>
-            <span className="insight-unit">Decision Time</span>
+            <span className="insight-big-val">{metrics ? metrics.allocations_active : '1.6s'}</span>
+            <span className="insight-unit">{metrics ? 'Live' : 'Decision Time'}</span>
           </div>
-          <small>Deterministic tie-breaking & constraint verification</small>
+          <small>{metrics ? `${metrics.deliveries_in_transit} consignments in active custody transit` : 'Deterministic tie-breaking & constraint verification'}</small>
         </div>
 
         <div className="insight-metric-card">
           <span className="insight-eyebrow">Mass Conservation</span>
           <div className="insight-val-row">
-            <span className="insight-big-val text-orange">0 Loss</span>
+            <span className="insight-big-val text-orange">{metrics ? (metrics.ledger_reconciliation_healthy ? '0 Loss' : 'Breach Detected') : '0 Loss'}</span>
             <span className="insight-unit">180 = 180</span>
           </div>
           <small>Mathematical verification: original == sum(allocated)</small>
         </div>
 
         <div className="insight-metric-card">
-          <span className="insight-eyebrow">Fleet Transit Velocity</span>
+          <span className="insight-eyebrow">Active Open Incidents</span>
           <div className="insight-val-row">
-            <span className="insight-big-val">24.2</span>
-            <span className="insight-unit">km/h</span>
+            <span className="insight-big-val">{metrics ? metrics.incidents_active : '24.2'}</span>
+            <span className="insight-unit">{metrics ? 'Exceptions' : 'km/h'}</span>
           </div>
-          <small>12 active GPS-verified volunteer couriers</small>
+          <small>{metrics ? `${metrics.batches_count} total inventory batches tracked in network` : '12 active GPS-verified volunteer couriers'}</small>
         </div>
       </div>
 

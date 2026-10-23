@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { VigiloProvider, useVigilo } from './context/VigiloContext'
 import { CyberTopNav } from './components/cyber-vigilio/CyberTopNav'
 import { DarkHeroStage } from './components/cyber-vigilio/DarkHeroStage'
 import { SourcesBentoCard } from './components/cyber-vigilio/SourcesBentoCard'
@@ -19,7 +20,7 @@ import { OperationsMatrixView } from './components/cyber-vigilio/OperationsMatri
 import { LiveFleetMapView } from './components/cyber-vigilio/LiveFleetMapView'
 import { VigilioLandingPage } from './components/landing/VigilioLandingPage'
 
-export function App() {
+function VigiloDashboard() {
   const [activeTab, setActiveTab] = useState('overview')
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [isAlertsTableOpen, setIsAlertsTableOpen] = useState(false)
@@ -28,14 +29,36 @@ export function App() {
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [isMatrixActive, setIsMatrixActive] = useState(false)
+  const [toastMessage, setToastMessage] = useState('Vigilo Autonomous Humanitarian Logistics Network Synchronized.')
 
-  // Simulation & Failure Scenario State (4 Core Scenarios from BACKEND_PLAN.md)
-  const [splitComplete, setSplitComplete] = useState(false)
-  const [shelterAOverflow, setShelterAOverflow] = useState(true)
-  const [isRerouting, setIsRerouting] = useState(false)
-  const [rerouteResolved, setRerouteResolved] = useState(false)
-  const [waterOnline, setWaterOnline] = useState(true)
-  const [toastMessage, setToastMessage] = useState('Vigilio Deployment-Ready Network Synchronized.')
+  const {
+    batches,
+    riders,
+    shelters,
+    allocations,
+    deliveries,
+    incidents,
+    metrics,
+    clock,
+    events,
+    presets,
+    baselineReport,
+    isBackendLive,
+    splitComplete,
+    shelterAOverflow,
+    isRerouting,
+    rerouteResolved,
+    waterOnline,
+    splitOversizedBatch,
+    recoverGhostLease,
+    triggerReroute,
+    toggleWaterPrerequisite,
+    createConsignment,
+    resolveIncident,
+    advanceTime,
+    resetSimulation,
+    runPresetBenchmark,
+  } = useVigilo()
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -48,83 +71,86 @@ export function App() {
     showToast(next === 'dark' ? 'Obsidian Stealth Dark Mode active.' : 'Pale Ecru Sage Light Mode active.')
   }
 
-  // SCENARIO 1: 180-Meal Batch Split (Max 40/rider cap)
-  const handleSplitBatch = () => {
-    setSplitComplete(true)
-    showToast('Scenario 1: 180 Cooked Meals split into 5 sub-tickets (40+40+40+40+20) · 0 Unaccounted.')
+  // SCENARIO 1: 180-Meal Batch Split
+  const handleSplitBatch = async () => {
+    const res = await splitOversizedBatch()
+    showToast(res)
   }
 
   // SCENARIO 2: Ghost Lease Revocation / Volunteer Stall
-  const handleStallRider = () => {
-    showToast('Scenario 2: Rider #12 lease timer expired (00:00) · Unpicked inventory recovered into pool.')
+  const handleStallRider = async () => {
+    const res = await recoverGhostLease()
+    showToast(res)
   }
 
   // SCENARIO 3: Mid-Journey Shelter Closure & Radar/Map Reroute
-  const handleTriggerReroute = () => {
-    setIsRerouting(true)
-    showToast('Autonomous Reroute: Diverting Courier #07 from Shelter A to Relief Camp B...')
-    setTimeout(() => {
-      setIsRerouting(false)
-      setRerouteResolved(true)
-      setShelterAOverflow(false)
-      showToast('✓ Reroute Locked: 40 Meals committed to Relief Camp B inside 19m safe buffer!')
-    }, 1600)
+  const handleTriggerReroute = async () => {
+    showToast('Autonomous Reroute: Calculating bio-safe alternative destination...')
+    const res = await triggerReroute()
+    showToast(res)
   }
 
   // SCENARIO 4: Supply Dependency Guard
-  const handleToggleWater = () => {
-    const next = !waterOnline
-    setWaterOnline(next)
-    showToast(
-      next
-        ? 'Scenario 4: Potable water restored at Shelter C · Raw rations approved for delivery.'
-        : 'Scenario 4: Missing clean water at Shelter C · Raw rations dispatch blocked & held at origin.'
-    )
+  const handleToggleWater = async () => {
+    const res = await toggleWaterPrerequisite()
+    showToast(res)
   }
 
   // Quick Dispatch Consignment
-  const handleCreateConsignment = (data: any) => {
-    showToast(`New Consignment Dispatched: ${data.cargoName} (${data.quantity} units) to ${data.targetShelter}.`)
+  const handleCreateConsignment = async (data: any) => {
+    const res = await createConsignment(data)
+    showToast(res)
+  }
+
+  // Advance Time sweep
+  const handleAdvanceClock = async (mins: number) => {
+    await advanceTime(mins)
+    showToast(`Simulation clock advanced +${mins}m. Heartbeat lease sweep completed.`)
   }
 
   // JSON Audit Trace Snapshot Export
   const handleExportAuditLog = () => {
     const auditData = {
-      system: 'Vigilio Autonomous Humanitarian Logistics Network',
+      system: 'Vigilo Autonomous Humanitarian Logistics Network',
       exportTimestamp: new Date().toISOString(),
-      networkStatus: 'SYNCHRONIZED',
+      networkStatus: isBackendLive ? 'CONNECTED_LIVE' : 'OFFLINE_STANDALONE',
+      authoritativeClock: clock,
+      systemMetrics: metrics,
       invariants: {
-        conservationOfMass: '180 == sum(allocated_quantities)',
+        conservationOfMass: 'sum(allocated_quantities) == sum(batch_original_quantities)',
+        massConservationViolations: metrics?.ledger_reconciliation_healthy ? 0 : 1,
         physicalCustodyProtection: 'ACTIVE',
         cleanWaterDependencyGuard: waterOnline ? 'SATISFIED' : 'BLOCKED',
       },
+      liveBatchesCount: batches.length,
+      liveRidersCount: riders.length,
+      liveSheltersCount: shelters.length,
+      liveAllocationsCount: allocations.length,
+      liveDeliveriesCount: deliveries.length,
+      verifiedIncidentsCount: incidents.length,
       scenariosState: {
         splitComplete,
         shelterAOverflow,
         rerouteResolved,
         waterOnline,
       },
-      verifiedIncidentsCount: 5,
+      operationalAuditEvents: events.slice(0, 50),
     }
     const blob = new Blob([JSON.stringify(auditData, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `vigilio-audit-trail-${Date.now()}.json`
+    a.download = `vigilo-audit-trail-${Date.now()}.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-    showToast('✓ Forensic Audit Trail exported as JSON.')
+    showToast('✓ Forensic Audit Trail & Invariant State exported as JSON.')
   }
 
-  const handleResetSimulation = () => {
-    setSplitComplete(false)
-    setShelterAOverflow(true)
-    setIsRerouting(false)
-    setRerouteResolved(false)
-    setWaterOnline(true)
-    showToast('Simulation scenarios reset to initial operational baseline.')
+  const handleResetSimulation = async () => {
+    await resetSimulation()
+    showToast('Simulation state & database seed reset to initial baseline.')
   }
 
   return (
@@ -154,6 +180,9 @@ export function App() {
           theme={theme}
           onToggleTheme={toggleTheme}
           isMatrixActive={isMatrixActive}
+          isBackendLive={isBackendLive}
+          clockTime={clock?.current_time}
+          onAdvanceTime={handleAdvanceClock}
         />
 
         {/* If Operations Matrix is active, show the high-density grid */}
@@ -170,7 +199,7 @@ export function App() {
           />
         ) : (
           <AnimatePresence mode="wait">
-            {/* TAB 0: Landing Page (Exact high-motion recreation of landing page.mp4) */}
+            {/* TAB 0: Landing Page */}
             {activeTab === 'landing' && (
               <motion.div
                 key="tab-landing"
@@ -189,7 +218,7 @@ export function App() {
               </motion.div>
             )}
 
-            {/* TAB 1: Data overview (The ONLY place where the dial/speedometer hero stage sits!) */}
+            {/* TAB 1: Data overview */}
             {activeTab === 'overview' && (
               <motion.div
                 key="tab-overview"
@@ -202,18 +231,19 @@ export function App() {
                 {/* Upper Dark Hero Stage (#181818) */}
                 <DarkHeroStage
                   onBackToOverview={() => {
-                    setIsRerouting(false)
-                    setRerouteResolved(false)
-                    setShelterAOverflow(true)
                     showToast('Reset to Master Dynamic View.')
                   }}
                   onTriggerReroute={handleTriggerReroute}
                   shelterAOverflow={shelterAOverflow}
                   isRerouting={isRerouting}
                   rerouteResolved={rerouteResolved}
-                  onResolveIncident={(id) => showToast(`Incident ${id} marked managed.`)}
+                  onResolveIncident={async (id) => {
+                    await resolveIncident(id)
+                    showToast(`Incident ${id} marked managed.`)
+                  }}
                   onSelectSeverity={(sev) => showToast(`Filtered telemetry to Severity: ${sev}`)}
                   onOpenMap={() => setActiveTab('map')}
+                  incidents={incidents}
                 />
 
                 {/* Bottom Bento Row (4 Cards) */}
@@ -222,6 +252,7 @@ export function App() {
                   <SourcesBentoCard
                     onSplitBatch={handleSplitBatch}
                     splitComplete={splitComplete}
+                    batches={batches}
                   />
 
                   {/* Card 2: Alerts */}
@@ -229,6 +260,7 @@ export function App() {
                     waterOnline={waterOnline}
                     onToggleWater={handleToggleWater}
                     onOpenAlertsTable={() => setIsAlertsTableOpen(true)}
+                    incidents={incidents}
                   />
 
                   {/* Card 3: Automation */}
@@ -242,6 +274,7 @@ export function App() {
                   <AssetsBentoCard
                     onSelectAsset={(id) => showToast(`Selected asset: ${id} · Telemetry active.`)}
                     onOpenFleetMap={() => setActiveTab('map')}
+                    riders={riders}
                   />
                 </div>
 
@@ -253,7 +286,7 @@ export function App() {
               </motion.div>
             )}
 
-            {/* TAB 2: Live Map ↗ (Swiggy / Zomato order tracking style real-time logistics map) */}
+            {/* TAB 2: Live Map */}
             {activeTab === 'map' && (
               <motion.div
                 key="tab-map"
@@ -265,11 +298,13 @@ export function App() {
                 <LiveFleetMapView
                   onTriggerReroute={handleTriggerReroute}
                   rerouteResolved={rerouteResolved}
+                  shelters={shelters}
+                  riders={riders}
                 />
               </motion.div>
             )}
 
-            {/* TAB 3: Key Alerts (Dedicated Incident Operations Center) */}
+            {/* TAB 3: Key Alerts */}
             {activeTab === 'alerts' && (
               <motion.div
                 key="tab-alerts"
@@ -288,7 +323,7 @@ export function App() {
               </motion.div>
             )}
 
-            {/* TAB 4: Insights (Dedicated Spoilage Risk Curves & Network Telemetry) */}
+            {/* TAB 4: Insights */}
             {activeTab === 'insights' && (
               <motion.div
                 key="tab-insights"
@@ -297,11 +332,11 @@ export function App() {
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.25 }}
               >
-                <InsightsView />
+                <InsightsView metrics={metrics} shelters={shelters} />
               </motion.div>
             )}
 
-            {/* TAB 5: Executions (Dedicated Autonomous Playbooks & Audit Ledger) */}
+            {/* TAB 5: Executions */}
             {activeTab === 'executions' && (
               <motion.div
                 key="tab-executions"
@@ -318,6 +353,10 @@ export function App() {
                   splitComplete={splitComplete}
                   rerouteResolved={rerouteResolved}
                   waterOnline={waterOnline}
+                  events={events}
+                  baselineReport={baselineReport}
+                  presets={presets}
+                  onRunBenchmark={runPresetBenchmark}
                 />
               </motion.div>
             )}
@@ -329,9 +368,11 @@ export function App() {
       <AlertsTableModal
         isOpen={isAlertsTableOpen}
         onClose={() => setIsAlertsTableOpen(false)}
-        onResolve={(id) => {
+        onResolve={async (id) => {
+          await resolveIncident(id)
           showToast(`Incident ${id} transactionally resolved & verified.`)
         }}
+        incidents={incidents}
       />
 
       <FullTimelineDrawer
@@ -343,6 +384,7 @@ export function App() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreateConsignment={handleCreateConsignment}
+        shelters={shelters}
       />
 
       <TelemetryFilterDrawer
@@ -370,4 +412,13 @@ export function App() {
     </div>
   )
 }
+
+export function App() {
+  return (
+    <VigiloProvider>
+      <VigiloDashboard />
+    </VigiloProvider>
+  )
+}
+
 export default App

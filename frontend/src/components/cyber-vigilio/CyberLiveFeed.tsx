@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../Icon'
+import { Incident } from '../../api/client'
 
 export interface IncidentItem {
   id: string
@@ -19,6 +20,7 @@ interface CyberLiveFeedProps {
   onTriggerReroute?: () => void
   shelterAOverflow?: boolean
   rerouteResolved?: boolean
+  backendIncidents?: Incident[]
 }
 
 export function CyberLiveFeed({
@@ -26,6 +28,7 @@ export function CyberLiveFeed({
   onTriggerReroute,
   shelterAOverflow = true,
   rerouteResolved = false,
+  backendIncidents,
 }: CyberLiveFeedProps) {
   const [timeFilter, setTimeFilter] = useState<'24h' | '1h' | '7d'>('24h')
   const [showFilterDropdown, setShowFilterDropdown] = useState(false)
@@ -33,7 +36,21 @@ export function CyberLiveFeed({
   const [criticalOnly, setCriticalOnly] = useState(false)
   const [selectedIncident, setSelectedIncident] = useState<IncidentItem | null>(null)
 
-  const rawIncidents: IncidentItem[] = [
+  const liveMappedIncidents: IncidentItem[] = (backendIncidents && backendIncidents.length > 0)
+    ? backendIncidents.map((inc) => ({
+        id: inc.id,
+        title: inc.reason_code ? inc.reason_code.replace(/_/g, ' ') : 'Sentinel Anomaly',
+        subtext: inc.description || 'Autonomous sentinel verification event',
+        isOrangeHero: inc.severity === 'CRITICAL' && inc.status !== 'RESOLVED',
+        badge: inc.severity === 'CRITICAL' ? 'C' : inc.severity === 'HIGH' ? 'H' : 'M',
+        timeAgo: 'Live',
+        status: inc.status === 'RESOLVED' ? 'resolved' : (inc.severity.toLowerCase() as any),
+        actionText: inc.status === 'RESOLVED' ? 'Verified' : 'Resolve',
+        timeWindowHours: 1,
+      }))
+    : []
+
+  const rawIncidents: IncidentItem[] = liveMappedIncidents.length > 0 ? liveMappedIncidents : [
     {
       id: 'inc-1',
       title: '3 Reassignments completed',

@@ -1,22 +1,25 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../Icon'
+import { Shelter } from '../../api/client'
 
 interface QuickCreateModalProps {
   isOpen: boolean
   onClose: () => void
   onCreateConsignment: (data: any) => void
+  shelters?: Shelter[]
 }
 
 export function QuickCreateModal({
   isOpen,
   onClose,
   onCreateConsignment,
+  shelters,
 }: QuickCreateModalProps) {
   const [cargoName, setCargoName] = useState('Cooked Meals Surplus')
   const [quantity, setQuantity] = useState('180')
   const [donorHub, setDonorHub] = useState('Banquet Hall A')
-  const [targetShelter, setTargetShelter] = useState('Shelter A')
+  const [targetShelter, setTargetShelter] = useState(shelters?.[0]?.id || 'shelter_central')
   const [safeWindow, setSafeWindow] = useState('48')
 
   if (!isOpen) return null
@@ -99,13 +102,28 @@ export function QuickCreateModal({
               </div>
 
               <div className="form-group">
-                <label>Primary Destination</label>
-                <input
-                  type="text"
-                  value={targetShelter}
-                  onChange={(e) => setTargetShelter(e.target.value)}
-                  required
-                />
+                <label>Primary Destination Hub</label>
+                {shelters && shelters.length > 0 ? (
+                  <select
+                    value={targetShelter}
+                    onChange={(e) => setTargetShelter(e.target.value)}
+                    required
+                    style={{ background: '#242424', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', padding: '0.6rem 0.8rem' }}
+                  >
+                    {shelters.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} (Cap: {s.demand_remaining}/{s.receiving_capacity_remaining})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={targetShelter}
+                    onChange={(e) => setTargetShelter(e.target.value)}
+                    required
+                  />
+                )}
               </div>
             </div>
 
