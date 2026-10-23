@@ -14,6 +14,12 @@ from .errors import (
     VigiloError,
 )
 from .events import AuditRecord, EventType, OperationalEvent
+from .ledger import (
+    InventoryLedgerEntry,
+    InventoryState,
+    ReconciliationReport,
+)
+from .ledger_service import InventoryLedgerService
 from .models import (
     Allocation,
     AllocationState,
@@ -43,6 +49,7 @@ class DispatchRequest:
     travel_minutes: int
     handoff_minutes: int
     now: datetime | None = None
+    idempotency_key: str | None = None
 
 
 # Keep backwards compatibility for code importing DispatchError
@@ -52,13 +59,12 @@ class DispatchError(VigiloError):
 
 
 class DispatchService:
-    """Authoritative domain service for dispatch, feasibility, and state transitions.
-
-    Shared identically between live operations and simulation.
-    """
+    """Authoritative domain service for dispatch, feasibility, state transitions,
+    and immutable inventory ledger tracking."""
 
     def __init__(self, clock: Clock | None = None) -> None:
         self.clock = clock or SystemClock()
+        self.ledger = InventoryLedgerService(clock=self.clock)
         self.users: dict[str, User] = {}
         self.donors: dict[str, Donor] = {}
         self.batches: dict[str, Batch] = {}
@@ -198,6 +204,13 @@ class DispatchService:
 
     def commit(self, request: DispatchRequest, actor: str = "dispatcher") -> Allocation:
         now = request.now or self.clock.now()
+
+        # Check idempotency first if key provided
+        if request.idempotency_key:
+            existing_entry = self.ledger._idempotency_records.get(request.idempotency_key)
+            if existing_entry and existing_entry.allocation_id in self.allocations:
+                return self.allocations[existing_entry.allocation_id]
+
         decision = self.preview(request)
         if not decision.feasible:
             self.record_event(
@@ -219,11 +232,22 @@ class DispatchService:
         shelter = self.shelters[request.shelter_id]
         safe_until = batch.item_rules.safe_until(batch.created_at)
 
-        # Standard 15-minute lease for acknowledgement and pickup
+        # 15-minute lease for acknowledgement and pickup
         lease_expires_at = now + timedelta(minutes=15)
+        alloc_id = f"alloc_{uuid4().hex[:12]}"
+
+        # Atomically record hold in the immutable ledger
+        self.ledger.hold_reservation(
+            batch=batch,
+            quantity=request.quantity,
+            allocation_id=alloc_id,
+            actor=actor,
+            reason=f"Claimed by rider {rider.id} for shelter {shelter.id}",
+            idempotency_key=request.idempotency_key,
+        )
 
         allocation = Allocation(
-            id=f"alloc_{uuid4().hex[:12]}",
+            id=alloc_id,
             batch_id=batch.id,
             rider_id=rider.id,
             shelter_id=shelter.id,
@@ -235,11 +259,6 @@ class DispatchService:
             lease_expires_at=lease_expires_at,
             safe_until=safe_until,
         )
-
-        # State updates (atomic in-memory)
-        batch.available_quantity -= request.quantity
-        batch.reserved_quantity += request.quantity
-        batch.validate_invariants()
 
         rider.active_load += request.quantity
         rider.status = RiderStatus.ASSIGNED
@@ -301,7 +320,7 @@ class DispatchService:
     def pickup_allocation(self, allocation_id: str, actor: str = "rider") -> Delivery:
         """Confirm physical pickup of cargo by the rider.
 
-        Transfers quantity from reserved to picked_up on the batch,
+        Transitions ledger state from RESERVED to PICKED_UP,
         updates allocation state to PICKED_UP, and creates an in-transit Delivery entity.
         """
         now = self.clock.now()
@@ -317,16 +336,24 @@ class DispatchService:
         allocation.picked_up_at = now
 
         batch = self.batches[allocation.batch_id]
-        batch.reserved_quantity -= allocation.quantity
-        batch.picked_up_quantity += allocation.quantity
-        batch.validate_invariants()
+        deliv_id = f"deliv_{uuid4().hex[:12]}"
+
+        # Atomically update ledger
+        self.ledger.record_pickup(
+            batch=batch,
+            quantity=allocation.quantity,
+            allocation_id=allocation.id,
+            delivery_id=deliv_id,
+            actor=actor,
+            reason=f"Picked up by rider {allocation.rider_id}",
+        )
 
         rider = self.riders[allocation.rider_id]
         rider.status = RiderStatus.IN_TRANSIT
 
         # Create physical Delivery entity
         delivery = Delivery(
-            id=f"deliv_{uuid4().hex[:12]}",
+            id=deliv_id,
             allocation_id=allocation.id,
             batch_id=batch.id,
             rider_id=rider.id,
@@ -362,9 +389,14 @@ class DispatchService:
         delivery.delivered_at = now
 
         batch = self.batches[delivery.batch_id]
-        batch.picked_up_quantity -= delivery.quantity
-        batch.delivered_quantity += delivery.quantity
-        batch.validate_invariants()
+        # Atomically update ledger
+        self.ledger.confirm_delivery(
+            batch=batch,
+            quantity=delivery.quantity,
+            delivery_id=delivery.id,
+            actor=actor,
+            reason=f"Safely delivered to shelter {delivery.current_shelter_id}",
+        )
 
         rider = self.riders[delivery.rider_id]
         rider.active_load -= delivery.quantity
@@ -380,9 +412,73 @@ class DispatchService:
         )
         return delivery
 
+    def expire_allocation(self, allocation_id: str, actor: str = "recovery_worker", reason: str = "Lease expired") -> Allocation:
+        """Expire an unpicked allocation and release inventory back to available stock.
+
+        Strict invariant: If cargo has already been PICKED_UP, it CANNOT be expired.
+        """
+        allocation = self.allocations.get(allocation_id)
+        if allocation is None:
+            raise EntityNotFoundError(ErrorCode.ALLOCATION_NOT_FOUND, "Allocation", allocation_id)
+
+        AllocationStateMachine.validate_transition(
+            allocation.state, AllocationState.EXPIRED, allocation_id
+        )
+
+        allocation.state = AllocationState.EXPIRED
+
+        batch = self.batches[allocation.batch_id]
+        self.ledger.release_reservation(
+            batch=batch,
+            quantity=allocation.quantity,
+            allocation_id=allocation.id,
+            actor=actor,
+            reason=reason,
+        )
+
+        rider = self.riders[allocation.rider_id]
+        rider.active_load -= allocation.quantity
+        if rider.active_load == 0:
+            rider.status = RiderStatus.AVAILABLE
+
+        shelter = self.shelters[allocation.shelter_id]
+        shelter.demand_remaining += allocation.quantity
+        shelter.receiving_capacity_remaining += allocation.quantity
+
+        self.record_event(
+            event_type=EventType.ALLOCATION_EXPIRED,
+            aggregate_id=allocation.id,
+            aggregate_type="Allocation",
+            actor=actor,
+            payload={"quantity": allocation.quantity, "reason": reason},
+        )
+        return allocation
+
+    def get_batch_ledger(self, batch_id: str) -> list[InventoryLedgerEntry]:
+        if batch_id not in self.batches:
+            raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+        return self.ledger.get_ledger(batch_id)
+
+    def reconcile_batch(self, batch_id: str) -> ReconciliationReport:
+        if batch_id not in self.batches:
+            raise EntityNotFoundError(ErrorCode.BATCH_NOT_FOUND, "Batch", batch_id)
+        return self.ledger.reconcile(self.batches[batch_id])
+
     def load_seed(self, base_time: datetime | None = None) -> None:
-        """Load deterministic seed entities into domain memory."""
+        """Load deterministic seed entities into domain memory and record genesis intake."""
         from .seed import create_seed_data
+
+        self.users.clear()
+        self.donors.clear()
+        self.batches.clear()
+        self.riders.clear()
+        self.shelters.clear()
+        self.allocations.clear()
+        self.deliveries.clear()
+        self.incidents.clear()
+        self.events.clear()
+        self.audit_records.clear()
+        self.ledger = InventoryLedgerService(clock=self.clock)
 
         data = create_seed_data(base_time or self.clock.now())
         for user in data["users"]:
@@ -391,6 +487,8 @@ class DispatchService:
             self.donors[donor.id] = donor
         for batch in data["batches"]:
             self.batches[batch.id] = batch
+            # Record initial intake entry in the ledger
+            self.ledger.record_intake(batch, reason="Seed data initial intake")
         for rider in data["riders"]:
             self.riders[rider.id] = rider
         for shelter in data["shelters"]:

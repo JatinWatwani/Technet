@@ -70,3 +70,39 @@ def test_rider_capacity_invariants_property(capacity, active_load):
     else:
         with pytest.raises(ValueError):
             Rider(id="rider_prop_invalid", capacity=capacity, active_load=active_load)
+
+
+@given(
+    initial_qty=st.integers(min_value=20, max_value=2000),
+    q1=st.integers(min_value=1, max_value=10),
+    q2=st.integers(min_value=1, max_value=10),
+)
+def test_ledger_reconciliation_property(initial_qty, q1, q2):
+    """Property test: Ledger reconciliation must always produce an exact, discrepancy-free report."""
+    from vigilo.domain.clock import SimulatedClock
+    from vigilo.domain.ledger_service import InventoryLedgerService
+
+    clock = SimulatedClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+    ledger = InventoryLedgerService(clock=clock)
+    batch = Batch(
+        id=f"batch_prop_{initial_qty}",
+        original_quantity=initial_qty,
+        item_rules=ItemRules(safe_handling_minutes=180),
+        created_at=clock.now(),
+    )
+    ledger.record_intake(batch)
+
+    # Perform holds, releases, pickups
+    ledger.hold_reservation(batch, q1, allocation_id="alloc_1")
+    ledger.record_pickup(batch, q1, allocation_id="alloc_1", delivery_id="deliv_1")
+    ledger.confirm_delivery(batch, q1, delivery_id="deliv_1")
+
+    if batch.available_quantity >= q2:
+        ledger.hold_reservation(batch, q2, allocation_id="alloc_2")
+        ledger.release_reservation(batch, q2, allocation_id="alloc_2")
+
+    report = ledger.reconcile(batch)
+    assert report.is_valid is True
+    assert len(report.discrepancies) == 0
+    assert report.reconciled_balance.total == initial_qty
+

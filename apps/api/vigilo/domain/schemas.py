@@ -166,6 +166,7 @@ class DispatchPayloadSchema(BaseModel):
     travel_minutes: int = Field(ge=0)
     handoff_minutes: int = Field(ge=0)
     now: datetime | None = None
+    idempotency_key: str | None = None
 
 
 class DispatchPreviewResponseSchema(BaseModel):
@@ -252,3 +253,55 @@ class OperationalEventResponseSchema(BaseModel):
     actor: str
     correlation_id: str
     evidence: dict[str, Any]
+
+
+# Inventory Ledger Schemas
+class InventoryBalanceSnapshotSchema(BaseModel):
+    available: int
+    reserved: int
+    picked_up: int
+    delivered: int
+    spoiled: int = 0
+    damaged: int = 0
+    lost: int = 0
+    total: int
+
+
+class InventoryLedgerEntryResponseSchema(BaseModel):
+    id: str
+    batch_id: str
+    entry_type: str
+    quantity: int
+    from_state: str | None
+    to_state: str
+    actor: str
+    command: str
+    reason: str
+    occurred_at: datetime
+    balance_after: InventoryBalanceSnapshotSchema
+    allocation_id: str | None = None
+    delivery_id: str | None = None
+    idempotency_key: str | None = None
+    correlation_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReconciliationReportResponseSchema(BaseModel):
+    batch_id: str
+    original_quantity: int
+    current_balance: InventoryBalanceSnapshotSchema
+    reconciled_balance: InventoryBalanceSnapshotSchema
+    is_valid: bool
+    entry_count: int
+    discrepancies: list[str]
+    checked_at: datetime
+
+
+class CompensatingAdjustmentSchema(BaseModel):
+    quantity: int = Field(gt=0)
+    from_state: str
+    to_state: str
+    reason: str = Field(min_length=5)
+    actor: str = "coordinator"
+    idempotency_key: str | None = None
+

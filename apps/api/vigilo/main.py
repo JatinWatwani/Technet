@@ -30,12 +30,16 @@ from .domain.schemas import (
     BatchResponseSchema,
     ClockAdvanceSchema,
     ClockResponseSchema,
+    CompensatingAdjustmentSchema,
     DeliveryResponseSchema,
     DispatchPayloadSchema,
     DispatchPreviewResponseSchema,
     IncidentResponseSchema,
+    InventoryBalanceSnapshotSchema,
+    InventoryLedgerEntryResponseSchema,
     ItemRulesSchema,
     OperationalEventResponseSchema,
+    ReconciliationReportResponseSchema,
     RiderCreateSchema,
     RiderResponseSchema,
     RiderStatusUpdateSchema,
@@ -46,6 +50,7 @@ from .domain.schemas import (
     UserCreateSchema,
     UserResponseSchema,
 )
+from .domain.ledger import InventoryState
 from .domain.state_machines import RiderStateMachine, ShelterStateMachine
 
 load_dotenv()
@@ -174,6 +179,7 @@ def create_batch(payload: BatchCreateSchema) -> BatchResponseSchema:
         created_at=created_at,
     )
     service.batches[batch.id] = batch
+    service.ledger.record_intake(batch, reason="API batch intake")
     service.record_event(
         event_type="DONATION_BATCH_CREATED",
         aggregate_id=batch.id,
@@ -181,6 +187,56 @@ def create_batch(payload: BatchCreateSchema) -> BatchResponseSchema:
         payload={"original_quantity": batch.original_quantity, "item_type": batch.item_type},
     )
     return _serialize_batch(batch)
+
+
+@app.get("/v1/batches/{batch_id}/ledger", response_model=list[InventoryLedgerEntryResponseSchema])
+def get_batch_ledger(batch_id: str) -> list[InventoryLedgerEntryResponseSchema]:
+    if not isinstance(service, DispatchService) or batch_id not in service.batches:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Batch '{batch_id}' not found")
+    entries = service.get_batch_ledger(batch_id)
+    return [_serialize_ledger_entry(e) for e in entries]
+
+
+@app.get("/v1/batches/{batch_id}/reconcile", response_model=ReconciliationReportResponseSchema)
+def reconcile_batch(batch_id: str) -> ReconciliationReportResponseSchema:
+    if not isinstance(service, DispatchService) or batch_id not in service.batches:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Batch '{batch_id}' not found")
+    report = service.reconcile_batch(batch_id)
+    return ReconciliationReportResponseSchema(
+        batch_id=report.batch_id,
+        original_quantity=report.original_quantity,
+        current_balance=InventoryBalanceSnapshotSchema(**report.current_balance.to_dict()),
+        reconciled_balance=InventoryBalanceSnapshotSchema(**report.reconciled_balance.to_dict()),
+        is_valid=report.is_valid,
+        entry_count=report.entry_count,
+        discrepancies=report.discrepancies,
+        checked_at=report.checked_at,
+    )
+
+
+@app.post("/v1/batches/{batch_id}/adjustments", response_model=InventoryLedgerEntryResponseSchema, status_code=status.HTTP_201_CREATED)
+def record_batch_adjustment(batch_id: str, payload: CompensatingAdjustmentSchema) -> InventoryLedgerEntryResponseSchema:
+    if not isinstance(service, DispatchService) or batch_id not in service.batches:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Batch '{batch_id}' not found")
+    batch = service.batches[batch_id]
+    try:
+        from_state = InventoryState(payload.from_state)
+        to_state = InventoryState(payload.to_state)
+        entry = service.ledger.record_compensating_adjustment(
+            batch=batch,
+            quantity=payload.quantity,
+            from_state=from_state,
+            to_state=to_state,
+            actor=payload.actor,
+            reason=payload.reason,
+            idempotency_key=payload.idempotency_key,
+        )
+        return _serialize_ledger_entry(entry)
+    except VigiloError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
 
 
 # -----------------------------------------------------------------------------
@@ -406,6 +462,17 @@ def acknowledge_allocation(allocation_id: str) -> AllocationResponseSchema:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
 
 
+@app.post("/v1/allocations/{allocation_id}/cancel", response_model=AllocationResponseSchema)
+def cancel_allocation(allocation_id: str) -> AllocationResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        alloc = service.expire_allocation(allocation_id, actor="dispatcher", reason="Manual allocation cancellation")
+        return _serialize_allocation(alloc)
+    except VigiloError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
+
+
 @app.post("/v1/allocations/{allocation_id}/pickup", response_model=DeliveryResponseSchema)
 def pickup_allocation(allocation_id: str) -> DeliveryResponseSchema:
     if not isinstance(service, DispatchService):
@@ -497,6 +564,7 @@ def _to_dispatch_request(payload: DispatchPayloadSchema) -> DispatchRequest:
         travel_minutes=payload.travel_minutes,
         handoff_minutes=payload.handoff_minutes,
         now=now,
+        idempotency_key=payload.idempotency_key,
     )
 
 
@@ -586,3 +654,25 @@ def _serialize_delivery(d) -> DeliveryResponseSchema:
         current_location=loc,
         destination_history=d.destination_history,
     )
+
+
+def _serialize_ledger_entry(e) -> InventoryLedgerEntryResponseSchema:
+    return InventoryLedgerEntryResponseSchema(
+        id=e.id,
+        batch_id=e.batch_id,
+        entry_type=e.entry_type.value,
+        quantity=e.quantity,
+        from_state=e.from_state.value if e.from_state else None,
+        to_state=e.to_state.value,
+        actor=e.actor,
+        command=e.command,
+        reason=e.reason,
+        occurred_at=e.occurred_at,
+        balance_after=InventoryBalanceSnapshotSchema(**e.balance_after.to_dict()),
+        allocation_id=e.allocation_id,
+        delivery_id=e.delivery_id,
+        idempotency_key=e.idempotency_key,
+        correlation_id=e.correlation_id,
+        metadata=e.metadata,
+    )
+
