@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Header, Query, status
 
 from .domain.clock import Clock, SimulatedClock, SystemClock
 from .domain.dispatch import DispatchError, DispatchRequest, DispatchService
-from .domain.errors import ErrorCode, StateTransitionError, VigiloError
+from .domain.errors import EntityNotFoundError, ErrorCode, StateTransitionError, VigiloError
 from .domain.models import (
     Batch,
     Donor,
@@ -27,6 +27,7 @@ from .domain.models import (
 from .domain.schemas import (
     AllocationResponseSchema,
     AuditRecordResponseSchema,
+    BaselineMetricComparisonSchema,
     BatchCreateSchema,
     BatchLifecycleReconstructionResponseSchema,
     BatchResponseSchema,
@@ -57,6 +58,13 @@ from .domain.schemas import (
     RuleEvaluationResultSchema,
     SafetyEvaluationReportResponseSchema,
     SafetyEvaluationRequestSchema,
+    ScenarioAdvanceTimeSchema,
+    ScenarioCompareBaselineResponseSchema,
+    ScenarioCreateSchema,
+    ScenarioInjectFailureSchema,
+    ScenarioPresetResponseSchema,
+    ScenarioReplayResponseSchema,
+    ScenarioStateResponseSchema,
     ShelterCloseSchema,
     ShelterCreateSchema,
     ShelterDemandUpdateSchema,
@@ -68,6 +76,8 @@ from .domain.schemas import (
 )
 from .domain.ledger import InventoryState
 from .domain.state_machines import RiderStateMachine, ShelterStateMachine
+from .domain.simulation import ScenarioInstance, ScenarioManager, PRESET_SCENARIOS
+from .domain.baseline import BaselineComparisonEngine
 
 load_dotenv()
 
@@ -1058,3 +1068,143 @@ def _serialize_incident(i) -> IncidentResponseSchema:
         resolved_at=i.resolved_at,
         evidence=i.evidence,
     )
+
+
+def _serialize_scenario_state(instance: ScenarioInstance) -> ScenarioStateResponseSchema:
+    return ScenarioStateResponseSchema(
+        scenario_id=instance.scenario_id,
+        name=instance.name,
+        seed=instance.seed,
+        status=instance.status,
+        current_time=instance.clock.now(),
+        batches=[_serialize_batch(b) for b in instance.service.batches.values()],
+        allocations=[_serialize_allocation(a) for a in instance.service.allocations.values()],
+        deliveries=[_serialize_delivery(d) for d in instance.service.deliveries.values()],
+        riders=[_serialize_rider(r) for r in instance.service.riders.values()],
+        shelters=[_serialize_shelter(s) for s in instance.service.shelters.values()],
+        incidents=[_serialize_incident(i) for i in instance.service.incidents.values()],
+        ledger_reconciliation=[
+            ReconciliationReportResponseSchema(**instance.service.ledger.reconcile(b).to_dict())
+            for b in instance.service.batches.values()
+        ],
+        metrics=instance.compute_metrics(),
+    )
+
+
+# ==========================================
+# Phase 6: Simulation & Baseline Endpoints
+# ==========================================
+
+@app.get("/v1/scenarios/presets", response_model=list[ScenarioPresetResponseSchema], tags=["simulation"])
+def list_scenario_presets():
+    """List preset chaos lab scenarios designed for judge evaluations."""
+    manager = ScenarioManager.get_instance()
+    presets = manager.list_presets()
+    return [ScenarioPresetResponseSchema(**p) for p in presets]
+
+
+@app.post("/v1/scenarios", response_model=ScenarioStateResponseSchema, tags=["simulation"])
+def create_scenario(payload: ScenarioCreateSchema):
+    """Create and initialize a new isolated simulation scenario."""
+    manager = ScenarioManager.get_instance()
+    instance = manager.create_scenario(
+        name=payload.name,
+        scenario_id=payload.scenario_id,
+        preset_id=payload.preset_id,
+        seed=payload.seed,
+        description=payload.description,
+        start_time=payload.start_time,
+    )
+    instance.start()
+    return _serialize_scenario_state(instance)
+
+
+@app.post("/v1/scenarios/{id}/start", response_model=ScenarioStateResponseSchema, tags=["simulation"])
+def start_scenario(id: str):
+    """Start an initialized scenario if not already running."""
+    manager = ScenarioManager.get_instance()
+    try:
+        instance = manager.get_scenario(id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.to_dict())
+    if instance.status != "RUNNING":
+        instance.start()
+    return _serialize_scenario_state(instance)
+
+
+@app.post("/v1/scenarios/{id}/advance-time", response_model=ScenarioStateResponseSchema, tags=["simulation"])
+def advance_scenario_time(id: str, payload: ScenarioAdvanceTimeSchema):
+    """Advance scenario simulated clock and execute autonomous recovery sweep workers."""
+    manager = ScenarioManager.get_instance()
+    try:
+        instance = manager.get_scenario(id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.to_dict())
+    try:
+        instance.advance_time(payload.minutes)
+    except VigiloError as e:
+        raise HTTPException(status_code=400, detail=e.to_dict())
+    return _serialize_scenario_state(instance)
+
+
+@app.post("/v1/scenarios/{id}/inject-failure", response_model=ScenarioStateResponseSchema, tags=["simulation"])
+def inject_scenario_failure(id: str, payload: ScenarioInjectFailureSchema):
+    """Inject failure disturbance (shelter closure, rider loss, flood disruption, demand surge) into scenario."""
+    manager = ScenarioManager.get_instance()
+    try:
+        instance = manager.get_scenario(id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.to_dict())
+    try:
+        instance.inject_failure(
+            failure_type=payload.failure_type,
+            target_id=payload.target_id,
+            params=payload.params,
+        )
+    except VigiloError as e:
+        raise HTTPException(status_code=400, detail=e.to_dict())
+    return _serialize_scenario_state(instance)
+
+
+@app.get("/v1/scenarios/{id}/state", response_model=ScenarioStateResponseSchema, tags=["simulation"])
+def get_scenario_state(id: str):
+    """Retrieve full isolated state snapshot, ledger reconciliation, and live metrics for a scenario."""
+    manager = ScenarioManager.get_instance()
+    try:
+        instance = manager.get_scenario(id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.to_dict())
+    return _serialize_scenario_state(instance)
+
+
+@app.get("/v1/scenarios/{id}/replay", response_model=ScenarioReplayResponseSchema, tags=["simulation"])
+def get_scenario_replay(id: str):
+    """Retrieve deterministic chronological replay tape of all scenario steps and injected events."""
+    manager = ScenarioManager.get_instance()
+    try:
+        instance = manager.get_scenario(id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.to_dict())
+    replay_data = instance.get_replay()
+    return ScenarioReplayResponseSchema(**replay_data)
+
+
+@app.post("/v1/scenarios/{id}/compare-baseline", response_model=ScenarioCompareBaselineResponseSchema, tags=["simulation"])
+def compare_scenario_with_baseline(id: str):
+    """Run baseline simulation and generate side-by-side comparative evaluation scorecard."""
+    manager = ScenarioManager.get_instance()
+    try:
+        instance = manager.get_scenario(id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.to_dict())
+    
+    vigilo_metrics = instance.compute_metrics()
+    comparison = BaselineComparisonEngine.compare(
+        vigilo_metrics=vigilo_metrics,
+        scenario_id=instance.scenario_id,
+        scenario_name=instance.name,
+        seed=instance.seed,
+        start_time=instance.start_time,
+        preset_id=instance.preset_id,
+    )
+    return ScenarioCompareBaselineResponseSchema(**comparison)

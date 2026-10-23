@@ -468,3 +468,73 @@ class WorkerSweepResponseSchema(BaseModel):
     stale_rider_heartbeats_count: int = 0
     safety_deadline_incidents_count: int = 0
     incidents_created: list[str] = Field(default_factory=list)
+
+
+# Phase 6: Simulation & Baseline Schemas
+class ScenarioCreateSchema(BaseModel):
+    name: str
+    scenario_id: str | None = None
+    preset_id: str | None = None
+    seed: int = 42
+    description: str = ""
+    start_time: datetime | None = None
+
+
+class ScenarioPresetResponseSchema(BaseModel):
+    preset_id: str
+    name: str
+    description: str
+    difficulty: str
+    chaos_elements: list[str]
+
+
+class ScenarioAdvanceTimeSchema(BaseModel):
+    minutes: int = Field(default=15, ge=1)
+
+
+class ScenarioInjectFailureSchema(BaseModel):
+    failure_type: str
+    target_id: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScenarioStateResponseSchema(BaseModel):
+    scenario_id: str
+    name: str
+    seed: int
+    status: str
+    current_time: datetime
+    batches: list[BatchResponseSchema]
+    allocations: list[AllocationResponseSchema]
+    deliveries: list[DeliveryResponseSchema]
+    riders: list[RiderResponseSchema]
+    shelters: list[ShelterResponseSchema]
+    incidents: list[IncidentResponseSchema]
+    ledger_reconciliation: list[ReconciliationReportResponseSchema]
+    metrics: dict[str, Any]
+
+
+class ScenarioReplayResponseSchema(BaseModel):
+    scenario_id: str
+    name: str
+    seed: int
+    event_count: int
+    events: list[dict[str, Any]]
+
+
+class BaselineMetricComparisonSchema(BaseModel):
+    metric_name: str
+    vigilo_value: float | int | str
+    baseline_value: float | int | str
+    improvement: str
+    passed_invariant: bool
+
+
+class ScenarioCompareBaselineResponseSchema(BaseModel):
+    scenario_id: str
+    scenario_name: str
+    seed: int
+    vigilo_metrics: dict[str, Any]
+    baseline_metrics: dict[str, Any]
+    comparative_scorecard: list[BaselineMetricComparisonSchema]
+    verdict_summary: str
