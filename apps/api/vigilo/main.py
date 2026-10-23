@@ -87,12 +87,22 @@ from .domain.state_machines import RiderStateMachine, ShelterStateMachine
 from .domain.simulation import ScenarioInstance, ScenarioManager, PRESET_SCENARIOS
 from .domain.baseline import BaselineComparisonEngine
 
+from fastapi.middleware.cors import CORSMiddleware
+
 load_dotenv()
 
 app = FastAPI(
     title="Vigilo Backend",
     version="0.1.0",
     description="Authoritative backend foundation for the Vigilo resilience-aware logistics engine",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
