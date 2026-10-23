@@ -18,7 +18,7 @@ interface CyberTopNavProps {
 }
 
 const TABS = [
-  { id: 'landing', label: 'Landing Page' },
+  { id: 'landing', label: 'Home' },
   { id: 'overview', label: 'Data overview' },
   { id: 'map', label: 'Live Map ↗' },
   { id: 'alerts', label: 'Key Alerts' },

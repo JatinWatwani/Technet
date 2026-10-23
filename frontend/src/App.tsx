@@ -162,7 +162,8 @@ function VigiloDashboard() {
           onTabChange={(tab) => {
             setActiveTab(tab)
             setIsMatrixActive(false)
-            if (tab === 'map') showToast('Switched to Live Volunteer Fleet & Shelter Map.')
+            if (tab === 'landing') showToast('Switched to Vigilio Home.')
+            else if (tab === 'map') showToast('Switched to Live Volunteer Fleet & Shelter Map.')
             else if (tab === 'alerts') showToast('Switched to Key Alerts Matrix workspace.')
             else if (tab === 'insights') showToast('Switched to Network Telemetry Insights workspace.')
             else if (tab === 'executions') showToast('Switched to Autonomous Executions Audit workspace.')

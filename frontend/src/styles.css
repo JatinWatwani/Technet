@@ -834,6 +834,13 @@ svg { display: block; }
   cursor: pointer;
   transition: color 0.2s ease;
   white-space: nowrap;
+  z-index: 2;
+  isolation: isolate;
+}
+
+.cyber-tab-btn span {
+  position: relative;
+  z-index: 3;
 }
 
 .cyber-tab-btn:hover {
@@ -841,16 +848,17 @@ svg { display: block; }
 }
 
 .cyber-tab-btn.is-active {
-  color: #ffffff;
+  color: #181818;
+  font-weight: 700;
 }
 
 .cyber-tab-indicator {
   position: absolute;
   inset: 0;
   border-radius: 999px;
-  background: #181818;
-  z-index: -1;
-  box-shadow: 0 4px 12px rgba(24, 24, 24, 0.2);
+  background: #ffffff;
+  z-index: 1;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .cyber-tab-add {
@@ -4481,6 +4489,16 @@ svg { display: block; }
 
 .cyber-app-wrapper.is-dark-theme .cyber-tab-btn:hover {
   color: #ffffff;
+}
+
+.cyber-app-wrapper.is-dark-theme .cyber-tab-btn.is-active {
+  color: #121212;
+  font-weight: 700;
+}
+
+.cyber-app-wrapper.is-dark-theme .cyber-tab-indicator {
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .cyber-app-wrapper.is-dark-theme .cyber-tab-add {
