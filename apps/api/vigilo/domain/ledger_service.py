@@ -437,7 +437,7 @@ class InventoryLedgerService:
         with lock:
             return list(self._entries.get(batch_id, []))
 
-    def reconcile(self, batch: Batch) -> ReconciliationReport:
+    def reconcile(self, batch: Batch, entries: list[InventoryLedgerEntry] | None = None) -> ReconciliationReport:
         """Execute full mathematical reconciliation of all ledger movements.
         
         Replays all entries from genesis and verifies that the sum matches
@@ -445,7 +445,8 @@ class InventoryLedgerService:
         """
         lock = self._get_batch_lock(batch.id)
         with lock:
-            entries = self._entries.get(batch.id, [])
+            if entries is None:
+                entries = self._entries.get(batch.id, [])
             now = self.clock.now()
 
             calc_available = 0
