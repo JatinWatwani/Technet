@@ -10,8 +10,8 @@ from .errors import (
     ConstraintViolationError,
     EntityNotFoundError,
     ErrorCode,
-    OopsLoopError,
     StateTransitionError,
+    VigiloError,
 )
 from .events import AuditRecord, EventType, OperationalEvent
 from .models import (
@@ -46,7 +46,7 @@ class DispatchRequest:
 
 
 # Keep backwards compatibility for code importing DispatchError
-class DispatchError(OopsLoopError):
+class DispatchError(VigiloError):
     def __init__(self, code: str, message: str, evidence: dict[str, object] | None = None) -> None:
         super().__init__(code=code, message=message, evidence=evidence or {})
 

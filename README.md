@@ -38,7 +38,7 @@ python -m pytest
 ## Run the API
 
 ```bash
-uvicorn oopsloop.main:app --app-dir apps/api --reload
+uvicorn vigilo.main:app --app-dir apps/api --reload
 ```
 
 Health check: `GET /health`

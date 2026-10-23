@@ -28,7 +28,7 @@ def create_seed_data(base_time: datetime | None = None) -> dict[str, list[object
 
     # 1. Users
     users = [
-        User(id="user_admin", name="Admin Coordinator", email="admin@oopsloop.org", role=UserRole.ADMIN, created_at=now),
+        User(id="user_admin", name="Admin Coordinator", email="admin@vigilo.org", role=UserRole.ADMIN, created_at=now),
         User(id="user_donor_metro", name="Metro Food Bank", email="contact@metrofood.org", role=UserRole.DONOR, created_at=now),
         User(id="user_rider_alpha", name="Alex Rider", email="alex@riders.org", role=UserRole.RIDER, created_at=now),
         User(id="user_shelter_coord", name="Sam Coordinator", email="sam@shelters.org", role=UserRole.SHELTER_COORDINATOR, created_at=now),

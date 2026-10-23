@@ -1,8 +1,8 @@
 import pytest
 
-from oopsloop.domain.errors import StateTransitionError
-from oopsloop.domain.models import AllocationState, DeliveryState, RiderStatus, ShelterStatus
-from oopsloop.domain.state_machines import (
+from vigilo.domain.errors import StateTransitionError
+from vigilo.domain.models import AllocationState, DeliveryState, RiderStatus, ShelterStatus
+from vigilo.domain.state_machines import (
     AllocationStateMachine,
     DeliveryStateMachine,
     RiderStateMachine,

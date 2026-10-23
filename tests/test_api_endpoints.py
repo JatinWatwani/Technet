@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 import pytest
 
-from oopsloop.main import app, service
+from vigilo.main import app, service
 
 client = TestClient(app)
 

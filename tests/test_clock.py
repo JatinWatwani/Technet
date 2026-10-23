@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from oopsloop.domain.clock import SimulatedClock, SystemClock
+from vigilo.domain.clock import SimulatedClock, SystemClock
 
 
 def test_system_clock():

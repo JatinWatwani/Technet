@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import pytest
 
-from oopsloop.domain.models import (
+from vigilo.domain.models import (
     Batch,
     GeoLocation,
     ItemRules,

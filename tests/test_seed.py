@@ -1,4 +1,4 @@
-from oopsloop.domain.seed import create_seed_data, get_default_seed_timestamp
+from vigilo.domain.seed import create_seed_data, get_default_seed_timestamp
 
 
 def test_seed_data_reproducibility():

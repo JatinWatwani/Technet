@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from oopsloop.domain.dispatch import DispatchError, DispatchRequest, DispatchService
-from oopsloop.domain.models import Batch, ItemRules, Rider, Shelter
+from vigilo.domain.dispatch import DispatchError, DispatchRequest, DispatchService
+from vigilo.domain.models import Batch, ItemRules, Rider, Shelter
 
 
 NOW = datetime(2026, 1, 1, 1, 0, tzinfo=timezone.utc)

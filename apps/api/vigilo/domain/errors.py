@@ -41,7 +41,7 @@ class ErrorCode(StrEnum):
     DISPATCH_REJECTED = "DISPATCH_REJECTED"
 
 
-class OopsLoopError(Exception):
+class VigiloError(Exception):
     """Base class for all domain and operational exceptions in Vigilo."""
 
     def __init__(
@@ -66,7 +66,11 @@ class OopsLoopError(Exception):
         }
 
 
-class DomainError(OopsLoopError):
+# Backwards compatibility alias
+OopsLoopError = VigiloError
+
+
+class DomainError(VigiloError):
     """Domain business logic or invariant violation."""
     pass
 

@@ -1,0 +1,607 @@
+Vigilo
+The Self-Healing Humanitarian Logistics Network
+Tagline: When plans break, aid keeps moving.
+
+Project type: AI-assisted humanitarian logistics and emergency-response platform
+Primary objective: Prevent avoidable aid waste through resilience-aware dispatch, safety enforcement, and automated operational recovery.
+
+1. The Problem
+
+Humanitarian aid distribution is a dynamic logistics problem, not simply a donation-matching problem.
+
+Donors, riders, and receiving centers operate with incomplete information. Donations expire, riders become unavailable, shelters reach capacity, routes become inaccessible, and some supplies cannot be used without specific prerequisites.
+
+Traditional workflows often depend on coordinators manually resolving these changes.
+
+Vigilo is designed to make dispatch decisions continuously, enforce safety constraints, detect operational failures, and recover feasible deliveries without double-allocating supplies.
+
+Core challenges
+Oversized donations exceed individual rider capacity or recipient demand.
+Unresponsive volunteers leave inventory blocked by abandoned claims.
+Shelter demand changes after a rider has picked up the cargo.
+Expiry deadlines make some otherwise attractive assignments unsafe.
+Supplies are sent to locations that lack the resources to use them.
+Floods, traffic, and connectivity failures disrupt delivery plans.
+Coordinators lack visibility into why a delivery failed or what should happen next.
+2. Product Vision
+
+Vigilo will operate as a resilience-aware logistics control system connecting donors, volunteer riders, shelters, NGOs, and emergency coordinators.
+
+The platform will maintain a live model of:
+
+Available and committed inventory.
+Rider availability, capacity, location, and active assignments.
+Shelter demand, receiving capacity, and operational readiness.
+Item-specific handling requirements and safety deadlines.
+Estimated travel and handoff times.
+Active claims, deliveries, incidents, and recovery options.
+
+Every dispatch decision will be evaluated for feasibility before optimization.
+
+The system will optimize efficiency only among plans that satisfy mandatory safety, capacity, compatibility, and inventory constraints.
+
+3. The Signature Innovation: Resilience-Aware Dispatch
+
+Most matching systems evaluate a proposed delivery against the current operational state.
+
+Vigilo will additionally evaluate how that delivery plan behaves under plausible disruptions.
+
+Before committing an assignment, the engine can simulate scenarios such as:
+
+The assigned rider stops responding.
+The receiving shelter becomes unavailable.
+Travel time increases unexpectedly.
+A competing donation fulfills the recipient's demand.
+A backup destination reaches capacity.
+A dependency required to use the supply becomes unavailable.
+
+The engine will compare feasible plans using:
+
+Expected delivery time.
+Expected spoilage and unmet demand.
+Recovery time after a disruption.
+Availability of alternative riders and destinations.
+Additional travel caused by contingency plans.
+Fairness across eligible receiving centers.
+Key principle
+
+A delivery plan is better when it is both efficient under normal conditions and recoverable when conditions change.
+
+Backup options must be conditional rather than duplicate reservations. Inventory and recipient capacity must never be promised simultaneously to conflicting assignments.
+
+This resilience-aware approach is the proposed research contribution. Its novelty and performance must be evaluated against existing implementations and measurable baselines.
+
+4. Complete Feature Catalogue
+A. Intelligent Dispatch Engine
+Capacity-aware batch splitting across multiple riders.
+Recipient demand matching with quantity-level allocations.
+Multi-donor pickup consolidation when compatible and feasible.
+Multi-stop route planning.
+Deadline-aware dispatch feasibility.
+Travel-time and handoff-time estimation.
+Explainable assignment rankings.
+Fairness-aware allocation across underserved recipients.
+Alternative destination comparison.
+Conditional backup plans and contingency scoring.
+B. Self-Healing Recovery Engine
+Time-limited reservation leases.
+Rider acknowledgement deadlines.
+Rider heartbeat monitoring.
+Automatic recovery of eligible unpicked claims.
+Separate state management for picked-up and in-transit cargo.
+Destination invalidation when shelter demand changes.
+Transactional rerouting of physical cargo.
+Backup rider activation.
+Cascading disruption recovery across multiple deliveries.
+Automatic escalation when no feasible recovery exists.
+C. Safety and Compatibility Engine
+Item-specific safe-handling deadlines.
+Configurable delivery safety buffers.
+Temperature and cold-chain records where applicable.
+Handling and storage requirement checks.
+Clean-water and cooking-fuel prerequisites for relevant supplies.
+Shelter readiness validation.
+Item-specific recipient eligibility.
+Quarantine and incident-review workflows.
+Unsafe-delivery prevention.
+Safety decision evidence and audit history.
+D. Shelter and Demand Intelligence
+Live demand and occupancy reporting.
+Incoming delivery capacity reservations.
+Duplicate-aid prevention.
+Emergency demand surge handling.
+Demand forecasting as a separate advisory layer.
+Stale-data detection and revalidation.
+Receiving-hours and staffing checks.
+Geographic service-coverage analysis.
+Unmet-demand prioritization.
+Recipient closure and reopening workflows.
+E. Volunteer Operations
+Volunteer availability and carrying-capacity profiles.
+Task acknowledgement and acceptance deadlines.
+Workload balancing.
+Operational reliability metrics.
+Backup assignment workflows.
+Mobile task and route interface.
+Offline task viewing and queued updates.
+Pickup and delivery verification.
+Emergency incident reporting.
+Transparent cancellation and appeal procedures.
+
+Reliability metrics will use operational evidence rather than personal characteristics. They will account for documented cancellations and connectivity failures rather than automatically penalizing every missed heartbeat.
+
+F. Disaster and Route Intelligence
+Road-closure management.
+Flood disruption scenarios.
+Route recalculation.
+Travel-time uncertainty handling.
+Geographic risk overlays.
+Alternate-route evaluation.
+Inaccessible-destination handling.
+Emergency coordination mode.
+Manual operator overrides with recorded reasons.
+Simulation of infrastructure and connectivity failures.
+
+Live route and hazard data will be used only when supported by available providers. Otherwise, the simulator will use explicitly labeled synthetic data.
+
+G. Trust and Accountability
+Role-based access for donors, riders, shelters, and coordinators.
+QR-based pickup verification.
+Chain-of-custody events.
+Delivery proof and recipient confirmation.
+Duplicate claim detection.
+Donation verification workflows.
+Suspicious activity flags.
+Versioned inventory and allocation records.
+Append-only audit events with tamper-evident integrity checks.
+Emergency override approvals.
+H. Simulation and Intelligence
+Accelerated simulated clock.
+Rider failure injection.
+Shelter closure injection.
+Expiry deadline scenarios.
+Sudden demand changes.
+Flood and road disruption scenarios.
+Simultaneous multi-failure scenarios.
+Deterministic scenario replay.
+Baseline-versus-proposed-engine comparisons.
+Performance reports and automated regression tests.
+I. Impact Analytics
+Meals and supplies safely delivered.
+Avoidable spoilage estimates.
+Fulfillment rate.
+Unmet demand.
+Recovery success rate.
+Recovery time after disruption.
+Failed and rejected assignment reasons.
+Extra travel caused by rerouting.
+Delivery cost estimates where data exists.
+Evidence-backed operational reports.
+
+Impact figures will distinguish measured outcomes from modeled estimates.
+
+5. Core Dispatch Rules
+
+The dispatch engine will enforce hard constraints before optimizing route quality.
+
+Rule 1: Quantity conservation
+
+For each inventory batch:
+
+Available quantity + reserved quantity + picked-up quantity + delivered quantity + other explicitly accounted quantities must reconcile with the batch's original quantity.
+
+Inventory transitions must be transactional.
+
+Rule 2: Rider capacity
+
+The total active load assigned to a rider must not exceed the rider's verified capacity.
+
+Rule 3: Recipient capacity
+
+Incoming allocations must not exceed confirmed remaining demand and receiving capacity.
+
+Rule 4: Safety deadline
+
+For a candidate delivery:
+
+pickup time + travel time + handoff time + safety buffer <= remaining safe-handling time
+
+The applicable safe-handling deadline must be established from item-specific rules and reliable source information.
+
+Rule 5: Compatibility
+
+An assignment must satisfy item eligibility, handling, storage, and recipient prerequisites.
+
+Rule 6: Reservation exclusivity
+
+The same inventory quantity cannot be committed to conflicting active claims.
+
+Rule 7: Recovery feasibility
+
+An in-transit reroute must account for the rider's current position, remaining cargo, alternative demand, recipient capacity, travel time, and safety deadline.
+
+Rule 8: Safe failure
+
+If no feasible assignment exists, stop automatic dispatch, preserve accurate inventory state, and escalate the incident.
+
+The engine must never invent a safe destination merely to complete a workflow.
+
+6. Last-Safe-Decision Clock
+
+Vigilo will introduce a deadline-aware recovery mechanism that estimates when a recovery option will cease to be feasible.
+
+For every candidate destination, the engine evaluates:
+
+Remaining safe-handling time.
+Estimated travel and handoff duration.
+Safety buffer.
+Data freshness and uncertainty.
+Time required to confirm the destination.
+Time required to assign and notify a replacement rider.
+
+The result is an estimated latest useful decision time.
+
+For example, a batch may have 20 minutes of safe-handling time remaining, while a proposed alternative requires 14 minutes for travel and handoff plus a 3-minute safety buffer.
+
+That leaves only 3 minutes for the remaining recovery work under those assumptions.
+
+The system should escalate before the recovery window closes rather than wait for the original plan to fail completely.
+
+The estimate will be recalculated whenever relevant conditions change.
+
+7. Resource Dependency Graph
+
+Supplies will be represented as items with eligibility and prerequisite rules.
+
+Examples:
+
+Raw ration kits may require verified clean water and cooking fuel.
+Temperature-sensitive supplies may require suitable storage and handling.
+Certain medical supplies may require a recipient with the necessary authorized handling capability.
+A shelter may accept a supply only during staffed receiving hours.
+
+The engine will evaluate whether prerequisites are already available or can be fulfilled before the supply arrives.
+
+If prerequisites cannot be satisfied in time, the engine will find another eligible destination or block dispatch.
+
+The dependency graph will use configurable rules and explicit evidence. AI may assist with extracting information from documents, but it will not override safety rules.
+
+8. Complete Operational Workspaces
+8.1 Command Center
+Live map of donors, riders, and shelters.
+Current supply and demand.
+Active deliveries and expiry countdowns.
+Incident queue and risk indicators.
+Dispatch decision explanations.
+Realtime event stream.
+8.2 Supply Exchange
+Donation creation and batch splitting.
+Item condition and handling metadata.
+Inventory availability and allocation history.
+Eligible recipient discovery.
+Rejection explanations.
+8.3 Rider Console
+Available and assigned tasks.
+Pickup instructions and acknowledgement deadlines.
+Capacity and route information.
+Pickup verification.
+Reroute notifications.
+Delivery proof and incident reporting.
+8.4 Shelter Operations
+Current demand and occupancy.
+Incoming deliveries.
+Receiving capacity and operating hours.
+Resource prerequisite declarations.
+Accept, reject, close, and reopen controls.
+8.5 Simulation Studio
+Scenario configuration.
+Accelerated clock.
+Failure injection.
+Timeline playback.
+State snapshots.
+Recovery traces.
+Baseline comparisons.
+8.6 Impact and Audit
+Delivery outcomes.
+Spoilage and waste estimates.
+Unmet demand.
+Incident analysis.
+Recovery performance.
+Audit history and exports.
+9. Recommended Technical Architecture
+Frontend
+Next.js
+React
+TypeScript
+Tailwind CSS
+MapLibre for geographic visualization
+Backend
+Node.js
+Fastify
+REST APIs
+WebSockets or Supabase Realtime for updates
+Data and transactions
+PostgreSQL
+PostGIS for geospatial queries
+Atomic transactions for allocation and recovery
+Version numbers for concurrency control
+Append-only operational event records
+Background processing
+Durable job queue
+Reservation expiration worker
+Rider heartbeat monitor
+Deadline and incident monitor
+Retryable recovery jobs
+Dispatch and optimization
+Deterministic constraint-based assignment engine
+Optimization solver when justified by measured workload
+Separate recovery state machine
+Shared engine for live operations and simulation
+Testing and delivery
+Vitest
+Property-based tests
+Playwright
+Automated regression scenarios
+Continuous integration
+Hosted deployment and monitoring
+
+The UI must not implement its own independent dispatch logic. All operational decisions must pass through the same authoritative backend engine.
+
+10. Core Data Model
+Entity	Purpose
+Users and roles	Identity and access control
+Donors	Donation sources
+Batches	Supplies, quantities, handling rules, deadlines
+Inventory ledger	Quantity movements and reconciliation
+Riders	Capacity, status, location, availability
+Shelters	Demand, capacity, readiness, eligibility
+Allocations	Reserved quantities and ownership
+Deliveries	Pickup, transit, destination, handoff
+Claims	Lease expiration and acknowledgement
+Route plans	Estimated routes and alternatives
+Incidents	Failure, severity, status, resolution
+Events	Operational history and audit trail
+Scenarios	Simulator configuration and snapshots
+Dependency rules	Supply prerequisites and eligibility
+Evidence records	Inputs, checks, decisions, and outcomes
+11. State Machines
+Unpicked allocation
+
+AVAILABLE → CLAIMED → ACKNOWLEDGED → PICKED_UP
+
+An expired claim may return to AVAILABLE only if the system verifies that the allocation has not been picked up or otherwise committed.
+
+Physical delivery
+
+PICKED_UP → IN_TRANSIT → DELIVERED
+
+A disruption may transition the delivery to:
+
+IN_TRANSIT → REROUTE_PENDING → IN_TRANSIT
+
+If no safe destination exists:
+
+IN_TRANSIT → INCIDENT_REVIEW
+
+The system must preserve physical custody and inventory reconciliation during these transitions.
+
+Important distinction
+
+An unpicked reservation can release inventory back to the dispatch pool.
+
+An in-transit delivery cannot. It requires a destination-change decision, a controlled update, and an auditable record.
+
+12. Chaos Lab: Judge Demonstration
+
+The simulator will support the following scenarios.
+
+Scenario A: Oversized donation
+Create a batch of 180 meals.
+Provide riders with varying carrying capacities.
+Set multiple shelter demands.
+Verify that quantities are split without exceeding capacity or demand.
+Scenario B: Ghost reservation
+Rider claims a batch.
+Rider becomes unresponsive.
+Simulated time advances.
+The lease expires.
+The recovery worker releases only eligible unpicked inventory.
+A replacement assignment is attempted.
+Scenario C: Shelter closure during transit
+Rider picks up 40 meals.
+Shelter demand drops to zero.
+Engine invalidates the destination.
+Alternative destinations are checked.
+A safe reroute is committed or an incident is escalated.
+Scenario D: Expiry infeasibility
+Create a batch with a short safe-handling window.
+Configure a travel estimate that exceeds the available time.
+Verify that dispatch is blocked.
+Scenario E: Missing prerequisites
+Offer raw ration kits to a shelter without verified water or cooking fuel.
+Verify that the assignment is rejected unless the prerequisites can be safely fulfilled.
+Scenario F: Cascading failure
+A rider becomes unavailable.
+An alternative shelter simultaneously closes.
+Multiple allocations compete for limited remaining capacity.
+The engine recomputes the feasible plan and reconciles all affected inventory.
+Scenario G: Flood disruption
+Mark a route inaccessible.
+Recalculate travel estimates.
+Compare alternative routes and destinations.
+Verify that infeasible deliveries are blocked.
+Scenario H: Concurrency stress
+Multiple riders attempt to claim overlapping inventory.
+Run concurrent allocation and recovery requests.
+Verify that quantities cannot be double-allocated.
+13. Evaluation Metrics
+
+The prototype will compare Vigilo against a baseline that uses nearest-feasible-recipient matching without resilience-aware planning.
+
+Metrics will include:
+
+Safe delivery completion rate.
+Meals and supplies spoiled.
+Unmet recipient demand.
+Time to recover after disruption.
+Number of duplicate allocation violations.
+Number of unsafe assignments accepted.
+Additional travel caused by recovery.
+Recovery success under varying failure rates.
+Fairness of service coverage.
+Time required to make a feasible dispatch decision.
+
+Safety and quantity-conservation rules will be tested as invariants, not treated as average performance targets.
+
+No performance improvement will be claimed until the tests produce reproducible results.
+
+14. Implementation Roadmap
+Phase 1 — Foundation
+Create repository and application structure.
+Implement authentication and role-based views.
+Define database schema and inventory ledger.
+Seed reproducible operational data.
+Create batch, rider, and shelter workflows.
+
+Exit criteria: Users can create donations, update demand, and inspect inventory.
+
+Phase 2 — Constraint Engine
+Implement quantity splitting.
+Add capacity and demand constraints.
+Add compatibility checks.
+Implement safety deadline calculations.
+Build assignment explanations.
+
+Exit criteria: The engine returns feasible assignments and rejects invalid ones.
+
+Phase 3 — Transactional Dispatch
+Implement atomic claims.
+Add lease expiration.
+Add rider acknowledgements.
+Prevent concurrent double allocation.
+Add reconciliation checks.
+
+Exit criteria: Concurrent claims cannot create conflicting allocations.
+
+Phase 4 — Self-Healing Recovery
+Add heartbeat monitoring.
+Recover eligible unpicked allocations.
+Add in-transit destination changes.
+Implement alternative destination scoring.
+Add escalation when no feasible option exists.
+
+Exit criteria: The shelter-closure and ghost-reservation scenarios pass automated tests.
+
+Phase 5 — Resilience Intelligence
+Implement the last-safe-decision clock.
+Add conditional contingency plans.
+Add failure-aware plan scoring.
+Add cascading recovery.
+Compare resilience-aware plans with the baseline.
+
+Exit criteria: Scenario tests demonstrate the trade-off between normal efficiency and recovery performance.
+
+Phase 6 — Simulation Studio
+Add accelerated simulated time.
+Implement deterministic event replay.
+Add failure injection.
+Capture state snapshots.
+Generate comparative reports.
+
+Exit criteria: Judges can reproduce and inspect each failure scenario.
+
+Phase 7 — Operational Experience
+Build the live command center.
+Add rider and shelter interfaces.
+Integrate geographic visualization.
+Add impact analytics and audit inspection.
+Improve mobile and offline behavior.
+
+Exit criteria: The operational workflows use the real backend and display actual engine decisions.
+
+Phase 8 — Hardening and Deployment
+Run concurrency and regression tests.
+Add monitoring and error reporting.
+Document configuration and deployment.
+Run end-to-end judge scenarios.
+Publish a reproducible demonstration.
+
+Exit criteria: The application can be deployed and its critical workflows verified from a clean environment.
+
+15. GitHub and Continuous Delivery
+
+Suggested repository structure:
+
+Vigilo/
+├── apps/
+│   ├── web/
+│   └── api/
+├── packages/
+│   ├── dispatch-engine/
+│   ├── recovery-engine/
+│   ├── safety-rules/
+│   ├── simulation/
+│   └── shared-types/
+├── database/
+│   ├── migrations/
+│   └── seeds/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── concurrency/
+│   └── scenarios/
+├── docs/
+│   ├── architecture.md
+│   ├── dispatch-rules.md
+│   ├── safety-model.md
+│   └── judge-demo.md
+├── .github/
+│   └── workflows/
+├── README.md
+├── CONTRIBUTING.md
+└── Vigilo_PROJECT_PLAN.md
+
+
+Commit in small, meaningful increments throughout development.
+
+Examples:
+
+feat: add quantity-conserving inventory ledger
+feat: implement deadline-aware dispatch feasibility
+feat: add atomic reservation leases
+feat: recover abandoned unpicked allocations
+feat: reroute in-transit deliveries transactionally
+feat: add resilience-aware contingency scoring
+test: cover cascading shelter and rider failures
+feat: add deterministic scenario replay
+docs: publish architecture and judge scenarios
+
+Configure continuous integration to run tests on every push. Never claim that commits have been pushed or tests have passed unless they actually have.
+
+16. Definition of Done
+
+Vigilo is ready for judging when:
+
+An oversized batch is allocated without violating capacity or demand.
+Unsafe and incompatible assignments are rejected.
+Abandoned unpicked claims are recovered safely.
+Picked-up inventory is never mistakenly returned to available stock.
+Shelter closures trigger a controlled recovery workflow.
+Alternative destinations are checked against current conditions.
+Concurrent operations cannot double-allocate inventory.
+Failed recovery produces an explicit incident instead of a fabricated success.
+The simulator reproduces the same scenario deterministically.
+Every decision can be inspected through an audit record.
+The baseline comparison produces reproducible performance metrics.
+The complete application can be run using documented setup instructions.
+17. Final Product Positioning
+
+Vigilo is not another donation marketplace.
+
+It is a resilience-aware coordination and recovery engine for humanitarian logistics.
+
+Its core contribution is the combination of constraint-based dispatch, recoverability-aware planning, deadline-aware recovery decisions, transactional inventory control, and verifiable operational evidence.
+
+The user interface makes the system understandable. The dispatch engine makes it useful. The simulator proves whether it works.
+
+Final tagline: When plans break, aid keeps moving.

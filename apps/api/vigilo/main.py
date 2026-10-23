@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, status
 
 from .domain.clock import Clock, SimulatedClock, SystemClock
 from .domain.dispatch import DispatchError, DispatchRequest, DispatchService
-from .domain.errors import ErrorCode, OopsLoopError, StateTransitionError
+from .domain.errors import ErrorCode, StateTransitionError, VigiloError
 from .domain.models import (
     Batch,
     Donor,
@@ -402,7 +402,7 @@ def acknowledge_allocation(allocation_id: str) -> AllocationResponseSchema:
     try:
         alloc = service.acknowledge_allocation(allocation_id)
         return _serialize_allocation(alloc)
-    except OopsLoopError as exc:
+    except VigiloError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
 
 
@@ -413,7 +413,7 @@ def pickup_allocation(allocation_id: str) -> DeliveryResponseSchema:
     try:
         delivery = service.pickup_allocation(allocation_id)
         return _serialize_delivery(delivery)
-    except OopsLoopError as exc:
+    except VigiloError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
 
 
@@ -431,7 +431,7 @@ def deliver_cargo(delivery_id: str) -> DeliveryResponseSchema:
     try:
         delivery = service.deliver_cargo(delivery_id)
         return _serialize_delivery(delivery)
-    except OopsLoopError as exc:
+    except VigiloError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_dict()) from exc
 
 

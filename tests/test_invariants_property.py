@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from hypothesis import given, strategies as st
 import pytest
 
-from oopsloop.domain.models import Batch, ItemRules, Rider
+from vigilo.domain.models import Batch, ItemRules, Rider
 
 
 @given(
