@@ -1,6 +1,16 @@
 // Vigilo Authoritative Backend API Client
+const getApiBase = (): string => {
+  if (import.meta.env.VITE_API_URL) {
+    return (import.meta.env.VITE_API_URL as string).replace(/\/$/, '')
+  }
+  // In development, talk to localhost:8000 via proxy or direct
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8000'
+  }
+  return ''
+}
 
-const API_BASE = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8000'
+const API_BASE = getApiBase()
 
 export interface ItemRules {
   safe_handling_minutes: number

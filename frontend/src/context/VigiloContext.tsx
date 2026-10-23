@@ -57,18 +57,30 @@ interface VigiloContextType {
   runPresetBenchmark: (presetId: string) => Promise<BaselineComparisonReport>
 }
 
+import {
+  FALLBACK_BATCHES,
+  FALLBACK_RIDERS,
+  FALLBACK_SHELTERS,
+  FALLBACK_ALLOCATIONS,
+  FALLBACK_DELIVERIES,
+  FALLBACK_INCIDENTS,
+  FALLBACK_METRICS,
+  FALLBACK_CLOCK,
+  FALLBACK_EVENTS,
+} from './fallbackData'
+
 const VigiloContext = createContext<VigiloContextType | null>(null)
 
 export function VigiloProvider({ children }: { children: React.ReactNode }) {
-  const [batches, setBatches] = useState<Batch[]>([])
-  const [riders, setRiders] = useState<Rider[]>([])
-  const [shelters, setShelters] = useState<Shelter[]>([])
-  const [allocations, setAllocations] = useState<Allocation[]>([])
-  const [deliveries, setDeliveries] = useState<Delivery[]>([])
-  const [incidents, setIncidents] = useState<Incident[]>([])
-  const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
-  const [clock, setClock] = useState<ClockState | null>(null)
-  const [events, setEvents] = useState<OperationalEvent[]>([])
+  const [batches, setBatches] = useState<Batch[]>(FALLBACK_BATCHES)
+  const [riders, setRiders] = useState<Rider[]>(FALLBACK_RIDERS)
+  const [shelters, setShelters] = useState<Shelter[]>(FALLBACK_SHELTERS)
+  const [allocations, setAllocations] = useState<Allocation[]>(FALLBACK_ALLOCATIONS)
+  const [deliveries, setDeliveries] = useState<Delivery[]>(FALLBACK_DELIVERIES)
+  const [incidents, setIncidents] = useState<Incident[]>(FALLBACK_INCIDENTS)
+  const [metrics, setMetrics] = useState<SystemMetrics | null>(FALLBACK_METRICS)
+  const [clock, setClock] = useState<ClockState | null>(FALLBACK_CLOCK)
+  const [events, setEvents] = useState<OperationalEvent[]>(FALLBACK_EVENTS)
   const [presets, setPresets] = useState<ScenarioPreset[]>([])
   const [baselineReport, setBaselineReport] = useState<BaselineComparisonReport | null>(null)
   const [isBackendLive, setIsBackendLive] = useState(false)
@@ -109,21 +121,45 @@ export function VigiloProvider({ children }: { children: React.ReactNode }) {
         api.getScenarioPresets().catch(() => []),
       ])
 
-      setBatches(bList)
-      setRiders(rList)
-      setShelters(sList)
-      setAllocations(aList)
-      setDeliveries(dList)
-      setIncidents(iList)
-      if (mObj) setMetrics(mObj)
-      if (cObj) setClock(cObj)
-      setEvents(eList)
-      setPresets(pList)
-      setIsBackendLive(true)
+      const isLive = Boolean(mObj || bList.length > 0 || sList.length > 0)
+      setIsBackendLive(isLive)
+
+      if (isLive) {
+        setBatches(bList)
+        setRiders(rList)
+        setShelters(sList)
+        setAllocations(aList)
+        setDeliveries(dList)
+        setIncidents(iList)
+        if (mObj) setMetrics(mObj)
+        if (cObj) setClock(cObj)
+        setEvents(eList.length > 0 ? eList : FALLBACK_EVENTS)
+        setPresets(pList)
+      } else {
+        // Standalone operational state for Netlify
+        setBatches(FALLBACK_BATCHES)
+        setRiders(FALLBACK_RIDERS)
+        setShelters(FALLBACK_SHELTERS)
+        setAllocations(FALLBACK_ALLOCATIONS)
+        setDeliveries(FALLBACK_DELIVERIES)
+        setIncidents(FALLBACK_INCIDENTS)
+        setMetrics(FALLBACK_METRICS)
+        setClock(FALLBACK_CLOCK)
+        setEvents(FALLBACK_EVENTS)
+      }
       setLastSyncTime(new Date())
     } catch (err) {
       console.warn('Backend unavailable; running with fallback operational state', err)
       setIsBackendLive(false)
+      setBatches(FALLBACK_BATCHES)
+      setRiders(FALLBACK_RIDERS)
+      setShelters(FALLBACK_SHELTERS)
+      setAllocations(FALLBACK_ALLOCATIONS)
+      setDeliveries(FALLBACK_DELIVERIES)
+      setIncidents(FALLBACK_INCIDENTS)
+      setMetrics(FALLBACK_METRICS)
+      setClock(FALLBACK_CLOCK)
+      setEvents(FALLBACK_EVENTS)
     } finally {
       setIsLoading(false)
     }
