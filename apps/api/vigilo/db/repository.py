@@ -485,6 +485,77 @@ class DatabaseRepository:
                 model.status = "FAILED"
 
     # -------------------------------------------------------------------------
+    # Incident Persistence
+    # -------------------------------------------------------------------------
+    def get_incident(self, incident_id: str, for_update: bool = False) -> Incident | None:
+        stmt = select(IncidentModel).where(IncidentModel.id == incident_id)
+        if for_update:
+            stmt = stmt.with_for_update()
+        model = self.session.execute(stmt).scalar_one_or_none()
+        if model is None:
+            return None
+        return self._to_domain_incident(model)
+
+    def save_incident(self, incident: Incident) -> None:
+        model = self.session.get(IncidentModel, incident.id)
+        sev_val = incident.severity.value if hasattr(incident.severity, "value") else str(incident.severity)
+        status_val = incident.status.value if hasattr(incident.status, "value") else str(incident.status)
+
+        if model is None:
+            model = IncidentModel(
+                id=incident.id,
+                severity=sev_val,
+                status=status_val,
+                affected_entity_type=incident.affected_entity_type,
+                affected_entity_id=incident.affected_entity_id,
+                reason_code=incident.reason_code,
+                description=incident.description,
+                evidence=incident.evidence or {},
+                created_at=incident.created_at,
+                resolved_at=incident.resolved_at,
+            )
+            self.session.add(model)
+        else:
+            model.severity = sev_val
+            model.status = status_val
+            model.description = incident.description
+            model.evidence = incident.evidence or {}
+            model.resolved_at = incident.resolved_at
+
+    def list_incidents(
+        self,
+        status: str | None = None,
+        severity: str | None = None,
+        affected_entity_type: str | None = None,
+        limit: int = 50,
+    ) -> list[Incident]:
+        stmt = select(IncidentModel).order_by(IncidentModel.created_at.desc())
+        if status:
+            stmt = stmt.where(IncidentModel.status == status)
+        if severity:
+            stmt = stmt.where(IncidentModel.severity == severity)
+        if affected_entity_type:
+            stmt = stmt.where(IncidentModel.affected_entity_type == affected_entity_type)
+        stmt = stmt.limit(limit)
+        models = self.session.execute(stmt).scalars().all()
+        return [self._to_domain_incident(m) for m in models]
+
+    @staticmethod
+    def _to_domain_incident(m: IncidentModel) -> Incident:
+        return Incident(
+            id=m.id,
+            severity=IncidentSeverity(m.severity),
+            status=IncidentStatus(m.status),
+            affected_entity_type=m.affected_entity_type,
+            affected_entity_id=m.affected_entity_id,
+            reason_code=m.reason_code,
+            description=m.description,
+            created_at=m.created_at,
+            evidence=m.evidence or {},
+            resolved_at=m.resolved_at,
+        )
+
+    # -------------------------------------------------------------------------
     # Domain Mapping Helpers
     # -------------------------------------------------------------------------
     @staticmethod

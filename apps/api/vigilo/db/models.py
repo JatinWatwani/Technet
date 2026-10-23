@@ -205,14 +205,15 @@ class IncidentModel(Base):
     __tablename__ = "incidents"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    title: Mapped[str] = mapped_column(String, nullable=False)
-    incident_type: Mapped[str] = mapped_column(String, nullable=False)
     severity: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="OPEN", nullable=False)
+    affected_entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    affected_entity_id: Mapped[str] = mapped_column(String, nullable=False)
+    reason_code: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(String, default="", nullable=False)
+    evidence: Mapped[dict] = mapped_column(JsonObject, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    evidence_json: Mapped[dict] = mapped_column(JsonObject, default=dict, nullable=False)
 
 
 class AuditRecordModel(Base):

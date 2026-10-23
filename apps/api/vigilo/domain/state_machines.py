@@ -57,6 +57,7 @@ class DeliveryStateMachine:
     ALLOWED_TRANSITIONS: dict[DeliveryState, Set[DeliveryState]] = {
         DeliveryState.PICKED_UP: {
             DeliveryState.IN_TRANSIT,
+            DeliveryState.REROUTE_PENDING,
             DeliveryState.DELIVERED,
             DeliveryState.INCIDENT_REVIEW,
         },

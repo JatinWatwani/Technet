@@ -422,4 +422,49 @@ class BatchLifecycleReconstructionResponseSchema(BaseModel):
     deliveries_count: int
 
 
+# Phase 5: Recovery Engine Schemas
+class ShelterCloseSchema(BaseModel):
+    reason: str = Field(default="Shelter closed due to operational conditions")
+    auto_reroute: bool = Field(default=True)
 
+
+class RerouteCandidateSchema(BaseModel):
+    shelter_id: str
+    shelter_name: str
+    travel_minutes: float
+    estimated_arrival: datetime
+    safety_margin_minutes: float
+    demand_remaining: int
+    receiving_capacity_remaining: int
+    score: float
+    feasible: bool
+    rejection_reasons: list[str] = Field(default_factory=list)
+
+
+class DeliveryReroutePreviewResponseSchema(BaseModel):
+    delivery_id: str
+    current_shelter_id: str
+    quantity: int
+    safe_until: datetime
+    recommended_shelter_id: str | None
+    candidates: list[RerouteCandidateSchema]
+
+
+class DeliveryRerouteCommitSchema(BaseModel):
+    target_shelter_id: str | None = None
+    reason: str = Field(default="In-transit reroute to alternative shelter")
+
+
+class IncidentResolveSchema(BaseModel):
+    resolution_notes: str = Field(default="Resolved by operations")
+
+
+class IncidentEscalateSchema(BaseModel):
+    reason: str = Field(default="Escalated for immediate review")
+
+
+class WorkerSweepResponseSchema(BaseModel):
+    expired_allocations_count: int = 0
+    stale_rider_heartbeats_count: int = 0
+    safety_deadline_incidents_count: int = 0
+    incidents_created: list[str] = Field(default_factory=list)

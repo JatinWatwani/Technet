@@ -152,6 +152,9 @@ class ReceivingHours:
         # Overnight receiving window
         return hour >= self.open_hour or hour < self.close_hour
 
+    def is_open(self, hour: int) -> bool:
+        return self.is_within(hour)
+
 
 @dataclass
 class Shelter:

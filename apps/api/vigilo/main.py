@@ -36,9 +36,13 @@ from .domain.schemas import (
     ClockAdvanceSchema,
     ClockResponseSchema,
     CompensatingAdjustmentSchema,
+    DeliveryRerouteCommitSchema,
+    DeliveryReroutePreviewResponseSchema,
     DeliveryResponseSchema,
     DispatchPayloadSchema,
     DispatchPreviewResponseSchema,
+    IncidentEscalateSchema,
+    IncidentResolveSchema,
     IncidentResponseSchema,
     InventoryBalanceSnapshotSchema,
     InventoryLedgerEntryResponseSchema,
@@ -53,12 +57,14 @@ from .domain.schemas import (
     RuleEvaluationResultSchema,
     SafetyEvaluationReportResponseSchema,
     SafetyEvaluationRequestSchema,
+    ShelterCloseSchema,
     ShelterCreateSchema,
     ShelterDemandUpdateSchema,
     ShelterResponseSchema,
     ShelterStatusUpdateSchema,
     UserCreateSchema,
     UserResponseSchema,
+    WorkerSweepResponseSchema,
 )
 from .domain.ledger import InventoryState
 from .domain.state_machines import RiderStateMachine, ShelterStateMachine
@@ -711,25 +717,203 @@ def list_events(limit: int = Query(default=50, ge=1, le=200)) -> list[Operationa
     ]
 
 
+def raise_vigilo_http_exception(exc: VigiloError):
+    if exc.code == "AUTHORIZATION_DENIED":
+        code_status = status.HTTP_403_FORBIDDEN
+    elif exc.code in (
+        "ALLOCATION_NOT_FOUND",
+        "DELIVERY_NOT_FOUND",
+        "BATCH_NOT_FOUND",
+        "SHELTER_NOT_FOUND",
+        "RIDER_NOT_FOUND",
+        "INCIDENT_NOT_FOUND",
+    ):
+        code_status = status.HTTP_404_NOT_FOUND
+    elif exc.code in ("CLAIM_EXPIRED", "RECOVERY_NOT_FEASIBLE", "INVALID_STATE_TRANSITION"):
+        code_status = status.HTTP_409_CONFLICT
+    else:
+        code_status = status.HTTP_400_BAD_REQUEST
+    raise HTTPException(status_code=code_status, detail=exc.to_dict()) from exc
+
+
+# -----------------------------------------------------------------------------
+# Phase 5: Shelter Closure & Reopening Endpoints
+# -----------------------------------------------------------------------------
+
+@app.post("/v1/shelters/{shelter_id}/close", response_model=ShelterResponseSchema)
+def close_shelter_endpoint(
+    shelter_id: str,
+    payload: ShelterCloseSchema | None = None,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> ShelterResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    if x_actor_role and x_actor_role not in ("ADMIN", "DISPATCHER"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Actor not authorized to close shelters")
+    reason = payload.reason if payload else "Shelter closed due to operational conditions"
+    auto_reroute = payload.auto_reroute if payload else True
+    try:
+        shelter, _, _, _ = service.close_shelter(
+            shelter_id,
+            actor=x_actor or "dispatcher",
+            reason=reason,
+            auto_reroute=auto_reroute,
+        )
+        return _serialize_shelter(shelter)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+@app.post("/v1/shelters/{shelter_id}/reopen", response_model=ShelterResponseSchema)
+def reopen_shelter_endpoint(
+    shelter_id: str,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> ShelterResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    if x_actor_role and x_actor_role not in ("ADMIN", "DISPATCHER"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Actor not authorized to reopen shelters")
+    try:
+        shelter = service.reopen_shelter(shelter_id, actor=x_actor or "dispatcher")
+        return _serialize_shelter(shelter)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+# -----------------------------------------------------------------------------
+# Phase 5: Delivery In-Transit Rerouting Endpoints
+# -----------------------------------------------------------------------------
+
+@app.post("/v1/deliveries/{delivery_id}/reroute/preview", response_model=DeliveryReroutePreviewResponseSchema)
+def preview_delivery_reroute(delivery_id: str) -> DeliveryReroutePreviewResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        res = service.preview_reroute(delivery_id)
+        return DeliveryReroutePreviewResponseSchema(**res)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+@app.post("/v1/deliveries/{delivery_id}/reroute/commit", response_model=DeliveryResponseSchema)
+def commit_delivery_reroute(
+    delivery_id: str,
+    payload: DeliveryRerouteCommitSchema | None = None,
+    x_actor_role: str | None = Header(None, alias="X-Actor-Role"),
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> DeliveryResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    target_id = payload.target_shelter_id if payload else None
+    reason = payload.reason if payload else "In-transit reroute"
+    try:
+        delivery = service.commit_reroute(
+            delivery_id=delivery_id,
+            target_shelter_id=target_id,
+            actor=x_actor or "dispatcher",
+            reason=reason,
+            actor_role=x_actor_role,
+        )
+        return _serialize_delivery(delivery)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+# -----------------------------------------------------------------------------
+# Phase 5: Incident Management Endpoints
+# -----------------------------------------------------------------------------
+
 @app.get("/v1/incidents", response_model=list[IncidentResponseSchema])
-def list_incidents() -> list[IncidentResponseSchema]:
+def list_incidents(
+    status: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    affected_entity_type: str | None = Query(default=None),
+) -> list[IncidentResponseSchema]:
     if not isinstance(service, DispatchService):
         return []
-    return [
-        IncidentResponseSchema(
-            id=inc.id,
-            severity=inc.severity,
-            status=inc.status,
-            affected_entity_type=inc.affected_entity_type,
-            affected_entity_id=inc.affected_entity_id,
-            reason_code=inc.reason_code,
-            description=inc.description,
-            created_at=inc.created_at,
-            resolved_at=inc.resolved_at,
-            evidence=inc.evidence,
-        )
-        for inc in service.incidents.values()
-    ]
+    incs = service.list_incidents(status=status, severity=severity, affected_entity_type=affected_entity_type)
+    return [_serialize_incident(inc) for inc in incs]
+
+
+@app.get("/v1/incidents/{incident_id}", response_model=IncidentResponseSchema)
+def get_incident(incident_id: str) -> IncidentResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    try:
+        inc = service.get_incident(incident_id)
+        return _serialize_incident(inc)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+@app.post("/v1/incidents/{incident_id}/escalate", response_model=IncidentResponseSchema)
+def escalate_incident(
+    incident_id: str,
+    payload: IncidentEscalateSchema | None = None,
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> IncidentResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    reason = payload.reason if payload else "Escalated for immediate review"
+    try:
+        inc = service.escalate_incident(incident_id, reason=reason, actor=x_actor or "operator")
+        return _serialize_incident(inc)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+@app.post("/v1/incidents/{incident_id}/resolve", response_model=IncidentResponseSchema)
+def resolve_incident(
+    incident_id: str,
+    payload: IncidentResolveSchema | None = None,
+    x_actor: str | None = Header(None, alias="X-Actor"),
+) -> IncidentResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    notes = payload.resolution_notes if payload else "Resolved by operations"
+    try:
+        inc = service.resolve_incident(incident_id, resolution_notes=notes, actor=x_actor or "operator")
+        return _serialize_incident(inc)
+    except VigiloError as exc:
+        raise_vigilo_http_exception(exc)
+
+
+# -----------------------------------------------------------------------------
+# Phase 5: Background Sweep Worker Endpoints
+# -----------------------------------------------------------------------------
+
+@app.post("/v1/workers/expire-allocations")
+def worker_expire_allocations() -> dict[str, Any]:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    expired = service.sweep_expired_allocations()
+    return {"expired_count": len(expired), "expired_ids": [a.id for a in expired]}
+
+
+@app.post("/v1/workers/monitor-heartbeats")
+def worker_monitor_heartbeats(max_staleness_minutes: float = Query(default=30.0)) -> dict[str, Any]:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    incidents = service.sweep_stale_heartbeats(max_staleness_minutes=max_staleness_minutes)
+    return {"stale_riders_incident_count": len(incidents), "incident_ids": [i.id for i in incidents]}
+
+
+@app.post("/v1/workers/safety-deadlines")
+def worker_safety_deadlines(buffer_minutes: float = Query(default=30.0)) -> dict[str, Any]:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    incidents = service.sweep_safety_deadlines(buffer_minutes=buffer_minutes)
+    return {"deadline_warning_count": len(incidents), "incident_ids": [i.id for i in incidents]}
+
+
+@app.post("/v1/workers/run-sweeps", response_model=WorkerSweepResponseSchema)
+def worker_run_all_sweeps() -> WorkerSweepResponseSchema:
+    if not isinstance(service, DispatchService):
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Operation requires domain service")
+    res = service.run_all_sweeps()
+    return WorkerSweepResponseSchema(**res)
 
 
 # -----------------------------------------------------------------------------
@@ -860,3 +1044,17 @@ def _serialize_ledger_entry(e) -> InventoryLedgerEntryResponseSchema:
         metadata=e.metadata,
     )
 
+
+def _serialize_incident(i) -> IncidentResponseSchema:
+    return IncidentResponseSchema(
+        id=i.id,
+        severity=i.severity,
+        status=i.status,
+        affected_entity_type=i.affected_entity_type,
+        affected_entity_id=i.affected_entity_id,
+        reason_code=i.reason_code,
+        description=i.description,
+        created_at=i.created_at,
+        resolved_at=i.resolved_at,
+        evidence=i.evidence,
+    )
