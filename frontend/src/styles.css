@@ -151,12 +151,11 @@ svg { display: block; }
 .subline-dot { width: 3px; height: 3px; border-radius: 50%; background: #c4c4cd; }
 .view-transition { animation: content-in .48s cubic-bezier(.22, 1, .36, 1) both; }
 
-.live-layout { display: grid; grid-template-columns: minmax(270px, .95fr) minmax(420px, 1.6fr) minmax(290px, 1fr); grid-template-areas: 'batch chart chart' 'lease lease shelter' 'dependency dependency dependency'; gap: 16px; }
-.batch-panel { grid-area: batch; }
-.chart-panel { grid-area: chart; }
-.lease-panel { grid-area: lease; }
-.shelter-panel { grid-area: shelter; }
-.dependency-panel { grid-area: dependency; }
+.live-layout .batch-panel { grid-area: batch; }
+.live-layout .chart-panel { grid-area: chart; }
+.live-layout .lease-panel { grid-area: lease; }
+.live-layout .shelter-panel { grid-area: shelter; }
+.live-layout .dependency-panel { grid-area: dependency; }
 
 .batch-list { display: flex; flex-direction: column; gap: 9px; }
 .batch-card { position: relative; overflow: hidden; padding: 13px 14px 12px; border: 1px solid rgba(255, 255, 255, .76); border-radius: 16px; box-shadow: 0 9px 19px rgba(109, 109, 162, .06); transition: transform .22s ease, box-shadow .22s ease; }
@@ -444,7 +443,11 @@ svg { display: block; }
   .clock-card { flex: 1; }
   .mode-mini { flex: 0 0 auto; }
   .live-layout { display: flex; flex-direction: column; }
-  .batch-panel { order: 1; }.chart-panel { order: 2; }.lease-panel { order: 3; }.shelter-panel { order: 4; }.dependency-panel { order: 5; }
+  .live-layout .batch-panel { order: 1; }
+  .live-layout .chart-panel { order: 2; }
+  .live-layout .lease-panel { order: 3; }
+  .live-layout .shelter-panel { order: 4; }
+  .live-layout .dependency-panel { order: 5; }
   .chart-meta { align-items: flex-start; flex-direction: column; }
   .chart-legend { justify-content: flex-start; }
   .chaos-kpi-row { grid-template-columns: 1fr; }
@@ -6125,6 +6128,151 @@ svg { display: block; }
 .cyber-app-wrapper.is-dark-theme .cyber-clock-btn:hover {
   background: #ffffff;
   color: #181818;
+}
+
+/* ====================================================================
+   REAL-TIME LEAFLET MAP & ANIMATED COURIER RADAR
+   ==================================================================== */
+#leaflet-fleet-map {
+  width: 100%;
+  height: 560px;
+  background: #111315;
+  outline: none;
+  border-radius: 24px;
+}
+
+.leaflet-container {
+  font-family: 'Outfit', sans-serif !important;
+  background-color: #121413 !important;
+}
+
+.custom-leaflet-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.marker-courier-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+}
+
+.courier-pulse-ring {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(249, 119, 29, 0.28);
+  animation: marker-pulse 2s infinite ease-in-out;
+  pointer-events: none;
+}
+
+@keyframes marker-pulse {
+  0% { transform: translate(-50%, -50%) scale(0.8); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; }
+}
+
+.courier-disc-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #F9771D;
+  border: 2px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(249, 119, 29, 0.65);
+  z-index: 2;
+  transition: transform 0.2s ease;
+}
+
+.courier-disc-badge.is-green {
+  background: #18B880;
+  box-shadow: 0 4px 12px rgba(24, 184, 128, 0.65);
+}
+
+.courier-label-pill {
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(18, 20, 19, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 9.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+}
+
+.marker-shelter-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transform: translate(-50%, -100%);
+}
+
+.shelter-pin-badge {
+  padding: 4px 9px;
+  border-radius: 12px;
+  background: rgba(22, 24, 23, 0.94);
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+}
+
+.shelter-pin-badge.is-critical {
+  border-color: #CE6969;
+  background: rgba(206, 105, 105, 0.25);
+  color: #ff9e9e;
+}
+
+.shelter-pin-badge.is-recommended {
+  border-color: #18B880;
+  background: rgba(24, 184, 128, 0.25);
+  color: #79f2c6;
+}
+
+.shelter-capacity-pill {
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.12);
+  font-family: 'DM Mono', monospace;
+}
+
+.marker-donor-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -100%);
+}
+
+.donor-pin-badge {
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(35, 40, 38, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e0e0e0;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 

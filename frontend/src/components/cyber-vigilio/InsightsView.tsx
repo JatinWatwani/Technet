@@ -11,13 +11,17 @@ interface InsightsViewProps {
 export function InsightsView({ metrics, shelters }: InsightsViewProps) {
   const [activeCurve, setActiveCurve] = useState<'all' | 'cooked' | 'insulin' | 'rations'>('all')
 
-  const liveShelters = shelters && shelters.length > 0 ? shelters.map((s) => ({
-    name: s.name,
-    current: s.demand_remaining,
-    capacity: s.receiving_capacity_remaining,
-    status: s.status === 'CLOSED' ? 'CLOSED · Overflow' : `${s.demand_remaining >= s.receiving_capacity_remaining ? 'Full' : 'Available'}`,
-    color: s.demand_remaining >= s.receiving_capacity_remaining ? '#CE6969' : '#18B880',
-  })) : null
+  const liveShelters = shelters && shelters.length > 0 ? shelters.map((s) => {
+    const totalCap = s.id === 'shelter_central' ? 150 : s.id === 'shelter_eastside' ? 100 : s.id === 'shelter_westside' ? 80 : 50
+    const occupied = s.status === 'CLOSED' ? totalCap : Math.max(0, totalCap - s.receiving_capacity_remaining)
+    return {
+      name: s.name,
+      current: occupied,
+      capacity: totalCap,
+      status: s.status === 'CLOSED' ? 'CLOSED · Flood Surge Evacuation' : `${totalCap - occupied} available intake capacity`,
+      color: s.status === 'CLOSED' ? '#CE6969' : (occupied / totalCap > 0.75 ? '#F9771D' : '#18B880'),
+    }
+  }) : null
 
   const SHELTERS = liveShelters || [
     { name: 'Shelter A (Primary)', current: 50, capacity: 50, status: 'Full · Over capacity', color: '#CE6969' },

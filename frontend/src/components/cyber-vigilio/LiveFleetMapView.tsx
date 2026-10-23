@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useRef } from 'react'
+import L from 'leaflet'
 import { Icon } from '../Icon'
 import { Shelter, Rider } from '../../api/client'
 
@@ -10,33 +10,64 @@ interface LiveFleetMapViewProps {
   riders?: Rider[]
 }
 
+interface CourierNode {
+  id: string
+  name: string
+  vehicle: string
+  cargo: string
+  bioBuffer: string
+  origin: string
+  destination: string
+  status: string
+  speed: string
+  battery: string
+  isHero: boolean
+  coords: [number, number]
+  targetCoords: [number, number]
+  routeWaypoints: [number, number][]
+}
+
 export function LiveFleetMapView({
   onTriggerReroute,
   rerouteResolved,
   shelters,
   riders,
 }: LiveFleetMapViewProps) {
-  const [selectedCourier, setSelectedCourier] = useState<string | null>('courier-07')
+  const [selectedCourier, setSelectedCourier] = useState<string>('courier-07')
   const [selectedShelter, setSelectedShelter] = useState<string | null>(null)
   const [mapFilter, setMapFilter] = useState<'all' | 'couriers' | 'shelters'>('all')
+
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const mapInstanceRef = useRef<L.Map | null>(null)
+  const courierMarkersRef = useRef<Record<string, L.Marker>>({})
+  const routePolylineRef = useRef<L.Polyline | null>(null)
+  const animFrameRef = useRef<number | null>(null)
+
+  // Real GPS Waypoint Nodes
+  const donorBanquet: [number, number] = [40.7100, -74.0120]
+  const donorPharmacy: [number, number] = [40.7280, -74.0020]
+  const donorHostel: [number, number] = [40.7380, -74.0080]
+
+  const shelterNorthPos: [number, number] = [40.7500, -73.9700]
+  const shelterCentralPos: [number, number] = [40.7150, -74.0000]
+  const shelterEastPos: [number, number] = [40.7250, -73.9800] // Relief Camp B
+  const shelterWestPos: [number, number] = [40.7350, -74.0150]
 
   // Live shelter lookup from backend if available
   const shelterCentral = shelters?.find((s) => s.id === 'shelter_central' || s.name.includes('Central'))
   const shelterEast = shelters?.find((s) => s.id === 'shelter_eastside' || s.name.includes('East'))
   const shelterNorth = shelters?.find((s) => s.id === 'shelter_north' || s.name.includes('North'))
 
-  // Shelter nodes across the city grid
-  const SHELTERS = [
+  // Real GPS-mapped shelters
+  const SHELTER_NODES = [
     {
       id: 'shelter-a',
       name: shelterNorth?.name || 'Shelter A (North Hub)',
       current: shelterNorth?.demand_remaining ?? 50,
       capacity: shelterNorth?.receiving_capacity_remaining ?? 50,
       status: shelterNorth?.status === 'CLOSED' ? 'CLOSED · Overflow divert triggered' : 'Critical · Capacity Capped at 50/50',
-      x: 320,
-      y: 90,
+      latLng: shelterNorthPos,
       isWarning: true,
-      type: 'shelter',
       address: 'Sector 4, North Relief Corridor',
     },
     {
@@ -45,48 +76,35 @@ export function LiveFleetMapView({
       current: rerouteResolved ? (shelterEast?.demand_remaining ?? 58) : 18,
       capacity: shelterEast?.receiving_capacity_remaining ?? 138,
       status: rerouteResolved ? 'Committed: +40 Meals Received' : 'Available · Receiving Hub',
-      x: 620,
-      y: 280,
+      latLng: shelterEastPos,
       isWarning: false,
       isRecommended: true,
-      type: 'shelter',
       address: 'Sector 9, Eastern Highway Junction',
     },
     {
-      id: 'shelter-c',
-      name: 'Shelter C (Cooking Station)',
-      current: 65,
-      capacity: 100,
+      id: 'shelter-central',
+      name: shelterCentral?.name || 'Downtown Central Emergency Shelter',
+      current: shelterCentral?.demand_remaining ?? 30,
+      capacity: shelterCentral?.receiving_capacity_remaining ?? 120,
       status: 'Prerequisite Active: Clean Water',
-      x: 140,
-      y: 310,
+      latLng: shelterCentralPos,
       isWarning: false,
-      type: 'shelter',
-      address: 'Sector 2, West Canal Road',
+      address: 'Downtown Sector 1, Central Hub',
     },
     {
-      id: 'riverside',
-      name: 'Riverside Camp',
-      current: 20,
+      id: 'shelter-west',
+      name: 'Westside Relief Station',
+      current: 40,
       capacity: 80,
       status: 'Reception Nominal',
-      x: 430,
-      y: 390,
+      latLng: shelterWestPos,
       isWarning: false,
-      type: 'shelter',
-      address: 'Sector 7, South Embankment',
+      address: 'Sector 7, Westside Embankment',
     },
   ]
 
-  // Food origin hubs
-  const DONORS = [
-    { id: 'donor-banquet', name: 'Banquet Hall A', x: 220, y: 190, cargo: '180 Cooked Meals' },
-    { id: 'donor-pharmacy', name: 'City Pharmacy Central', x: 490, y: 150, cargo: '24 Insulin Kits' },
-    { id: 'donor-hostel', name: 'Hostel Mess Kitchen', x: 100, y: 180, cargo: '96 Raw Rations' },
-  ]
-
-  // Volunteer couriers (Swiggy / Zomato order tracking style)
-  const COURIERS = [
+  // Real GPS Courier Fleet Data
+  const COURIERS: CourierNode[] = [
     {
       id: 'courier-07',
       name: 'Courier #07 (Rider Vikram S.)',
@@ -97,10 +115,13 @@ export function LiveFleetMapView({
       destination: rerouteResolved ? 'Relief Camp B (Rerouted)' : 'Shelter A (Over Capacity)',
       status: rerouteResolved ? 'En Route to Relief Camp B' : 'Reroute Recommended',
       speed: '28 km/h',
-      x: rerouteResolved ? 480 : 280,
-      y: rerouteResolved ? 230 : 130,
-      isHero: true,
       battery: '82%',
+      isHero: true,
+      coords: rerouteResolved ? [40.7210, -73.9920] : [40.7320, -73.9880],
+      targetCoords: rerouteResolved ? shelterEastPos : shelterNorthPos,
+      routeWaypoints: rerouteResolved
+        ? [donorBanquet, [40.7180, -74.0040], [40.7210, -73.9920], shelterEastPos]
+        : [donorBanquet, [40.7250, -74.0000], [40.7350, -73.9880], shelterNorthPos],
     },
     {
       id: 'courier-14',
@@ -109,13 +130,14 @@ export function LiveFleetMapView({
       cargo: '60 Bread & Fruit Kits',
       bioBuffer: '65m buffer',
       origin: 'Banquet Hall A',
-      destination: 'Riverside Camp',
+      destination: 'Westside Relief Station',
       status: 'Normal Delivery Transit',
       speed: '22 km/h',
-      x: 350,
-      y: 320,
-      isHero: false,
       battery: '94%',
+      isHero: false,
+      coords: [40.7220, -74.0110],
+      targetCoords: shelterWestPos,
+      routeWaypoints: [donorBanquet, [40.7220, -74.0110], shelterWestPos],
     },
     {
       id: 'courier-02',
@@ -123,19 +145,180 @@ export function LiveFleetMapView({
       vehicle: 'Insulated Refrigerated Van',
       cargo: '24 Insulin Kits (Cold-Chain 3.8°C)',
       bioBuffer: '42m bio-safe window',
-      origin: 'City Pharmacy',
-      destination: 'Relief Camp B',
+      origin: 'City Pharmacy Central',
+      destination: 'Downtown Central Shelter',
       status: 'Cold-Chain Secure',
       speed: '34 km/h',
-      x: 550,
-      y: 210,
-      isHero: false,
       battery: '100%',
+      isHero: false,
+      coords: [40.7210, -74.0020],
+      targetCoords: shelterCentralPos,
+      routeWaypoints: [donorPharmacy, [40.7210, -74.0020], shelterCentralPos],
     },
   ]
 
   const activeCourierData = COURIERS.find((c) => c.id === selectedCourier) || COURIERS[0]
-  const activeShelterData = SHELTERS.find((s) => s.id === selectedShelter)
+
+  // Initialize Real Leaflet Map
+  useEffect(() => {
+    if (!mapContainerRef.current) return
+
+    // Ensure previous instance is wiped
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove()
+      mapInstanceRef.current = null
+    }
+
+    const map = L.map(mapContainerRef.current, {
+      center: [40.7280, -73.9980],
+      zoom: 13,
+      zoomControl: true,
+      attributionControl: false,
+    })
+
+    // High-resolution OpenStreetMap tiles (No API key required)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      subdomains: ['a', 'b', 'c'],
+    }).addTo(map)
+
+    mapInstanceRef.current = map
+
+    // 1. Render Donor Kitchens
+    const donorLayer = L.layerGroup().addTo(map)
+    const donors = [
+      { name: 'Banquet Hall A (180 Meals)', pos: donorBanquet },
+      { name: 'City Pharmacy Central', pos: donorPharmacy },
+      { name: 'Hostel Mess Kitchen', pos: donorHostel },
+    ]
+
+    donors.forEach((d) => {
+      const donorIcon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        html: `
+          <div class="marker-donor-wrapper">
+            <div class="donor-pin-badge">
+              <span>🏬</span>
+              <strong>${d.name}</strong>
+            </div>
+          </div>
+        `,
+        iconSize: [120, 30],
+        iconAnchor: [60, 28],
+      })
+      L.marker(d.pos, { icon: donorIcon }).addTo(donorLayer)
+    })
+
+    // 2. Render Shelters
+    const shelterLayer = L.layerGroup().addTo(map)
+    SHELTER_NODES.forEach((s) => {
+      const isCrit = s.isWarning && !rerouteResolved
+      const isRec = s.isRecommended
+      const shelterIcon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        html: `
+          <div class="marker-shelter-wrapper" id="marker-${s.id}">
+            <div class="shelter-pin-badge ${isCrit ? 'is-critical' : isRec ? 'is-recommended' : ''}">
+              <span>${isCrit ? '⚠' : isRec ? '✓' : '🏥'}</span>
+              <strong>${s.name.split(' (')[0]}</strong>
+              <span class="shelter-capacity-pill">${s.current}/${s.capacity}</span>
+            </div>
+          </div>
+        `,
+        iconSize: [160, 36],
+        iconAnchor: [80, 36],
+      })
+
+      const marker = L.marker(s.latLng, { icon: shelterIcon }).addTo(shelterLayer)
+      marker.on('click', () => {
+        setSelectedShelter(s.id)
+      })
+    })
+
+    // 3. Render Couriers
+    const courierLayer = L.layerGroup().addTo(map)
+    courierMarkersRef.current = {}
+
+    COURIERS.forEach((c) => {
+      const isHero = c.isHero
+      const icon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        html: `
+          <div class="marker-courier-wrapper" id="courier-pin-${c.id}">
+            ${isHero ? '<div class="courier-pulse-ring"></div>' : ''}
+            <div class="courier-disc-badge ${isHero ? '' : 'is-green'}">
+              <span>🚴</span>
+            </div>
+            <div class="courier-label-pill">
+              ${c.id.toUpperCase()} • ${c.speed}
+            </div>
+          </div>
+        `,
+        iconSize: [90, 48],
+        iconAnchor: [45, 24],
+      })
+
+      const marker = L.marker(c.coords, { icon }).addTo(courierLayer)
+      marker.on('click', () => {
+        setSelectedCourier(c.id)
+      })
+      courierMarkersRef.current[c.id] = marker
+    })
+
+    // 4. Render Active Delivery Polyline Route
+    const activeCourier = COURIERS.find((c) => c.id === selectedCourier) || COURIERS[0]
+    const routeColor = rerouteResolved ? '#18B880' : '#F9771D'
+
+    const polyline = L.polyline(activeCourier.routeWaypoints, {
+      color: routeColor,
+      weight: 4,
+      dashArray: '8, 8',
+      opacity: 0.9,
+    }).addTo(map)
+
+    routePolylineRef.current = polyline
+
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+      map.remove()
+      mapInstanceRef.current = null
+    }
+  }, [rerouteResolved])
+
+  // Real-time animated GPS pulse movement simulation
+  useEffect(() => {
+    let t = 0
+    const interval = setInterval(() => {
+      t += 0.04
+      const heroMarker = courierMarkersRef.current['courier-07']
+      if (heroMarker) {
+        // Micro-oscillate/glide along route
+        const baseLat = rerouteResolved ? 40.7225 : 40.7320
+        const baseLng = rerouteResolved ? -73.9900 : -73.9880
+        const deltaLat = Math.sin(t) * 0.0018
+        const deltaLng = Math.cos(t) * 0.0022
+        heroMarker.setLatLng([baseLat + deltaLat, baseLng + deltaLng])
+      }
+
+      const courier14 = courierMarkersRef.current['courier-14']
+      if (courier14) {
+        const deltaLat = Math.cos(t * 0.8) * 0.0012
+        const deltaLng = Math.sin(t * 0.8) * 0.0015
+        courier14.setLatLng([40.7220 + deltaLat, -74.0110 + deltaLng])
+      }
+    }, 120)
+
+    return () => clearInterval(interval)
+  }, [rerouteResolved])
+
+  // Center on selected courier
+  const handleSelectCourier = (id: string) => {
+    setSelectedCourier(id)
+    const c = COURIERS.find((item) => item.id === id)
+    if (c && mapInstanceRef.current) {
+      mapInstanceRef.current.panTo(c.coords, { animate: true, duration: 0.8 })
+    }
+  }
 
   return (
     <div className="fleet-map-container">
@@ -147,8 +330,8 @@ export function LiveFleetMapView({
             <Icon name="map" size={15} />
           </div>
           <div>
-            <h3>Live Volunteer Fleet & Shelter Map</h3>
-            <p>Real-time Swiggy/Zomato style courier tracking, capacity monitoring, and in-transit rerouting</p>
+            <h3>Live Volunteer Fleet & Geospatial Shelter Map</h3>
+            <p>Real-time OpenStreetMap Swiggy/Zomato GPS courier tracking, dynamic bio-window buffers, and in-transit rerouting</p>
           </div>
         </div>
 
@@ -174,218 +357,13 @@ export function LiveFleetMapView({
         </div>
       </div>
 
-      {/* Main Map Stage */}
+      {/* Main Realtime Map Stage */}
       <div className="map-stage-wrapper">
-        <svg
-          viewBox="0 0 800 480"
-          className="city-grid-svg"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <defs>
-            <linearGradient id="road-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="rgba(255, 255, 255, 0.08)" />
-              <stop offset="100%" stopColor="rgba(255, 255, 255, 0.04)" />
-            </linearGradient>
-
-            <linearGradient id="river-grad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="rgba(57, 153, 206, 0.08)" />
-              <stop offset="50%" stopColor="rgba(57, 153, 206, 0.16)" />
-              <stop offset="100%" stopColor="rgba(57, 153, 206, 0.08)" />
-            </linearGradient>
-
-            <filter id="courier-glow" x="-30%" y="-30%" width="160%" height="160%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* 1. City River */}
-          <path
-            d="M 0 360 Q 200 340 400 370 T 800 330 L 800 420 L 0 450 Z"
-            fill="url(#river-grad)"
-          />
-          <text x="30" y="420" fill="rgba(57, 153, 206, 0.4)" fontSize="11" fontFamily="'Outfit', sans-serif">
-            South Relief River Canal
-          </text>
-
-          {/* 2. City Grid Road Network */}
-          <g className="city-roads" stroke="rgba(255, 255, 255, 0.08)" strokeWidth="6" strokeLinecap="round">
-            {/* Main Arterials */}
-            <line x1="60" y1="90" x2="740" y2="90" />
-            <line x1="60" y1="190" x2="740" y2="190" />
-            <line x1="60" y1="280" x2="740" y2="280" />
-            <line x1="60" y1="390" x2="740" y2="390" />
-            {/* North-South Corridors */}
-            <line x1="140" y1="60" x2="140" y2="440" />
-            <line x1="320" y1="60" x2="320" y2="440" />
-            <line x1="490" y1="60" x2="490" y2="440" />
-            <line x1="620" y1="60" x2="620" y2="440" />
-            {/* Diagonal Bypass */}
-            <line x1="220" y1="190" x2="620" y2="280" strokeDasharray="3 3" strokeWidth="2.5" />
-          </g>
-
-          {/* Road Labels */}
-          <text x="145" y="80" fill="rgba(255, 255, 255, 0.25)" fontSize="10" fontFamily="'DM Mono', monospace">CORRIDOR 01</text>
-          <text x="325" y="80" fill="rgba(255, 255, 255, 0.25)" fontSize="10" fontFamily="'DM Mono', monospace">CENTRAL ARTERIAL</text>
-          <text x="625" y="80" fill="rgba(255, 255, 255, 0.25)" fontSize="10" fontFamily="'DM Mono', monospace">EAST EXPRESSWAY</text>
-
-          {/* 3. Original Route (Banquet Hall A ──► Shelter A) */}
-          <path
-            d="M 220 190 L 320 190 L 320 90"
-            fill="none"
-            stroke={rerouteResolved ? 'rgba(255, 255, 255, 0.12)' : '#F9771D'}
-            strokeWidth="3"
-            strokeDasharray={rerouteResolved ? '4 4' : '6 3'}
-          />
-
-          {/* 4. Active Swiggy/Zomato Reroute Path (Courier 07 ──► Relief Camp B) */}
-          {rerouteResolved && (
-            <motion.path
-              d="M 280 130 Q 420 190 620 280"
-              fill="none"
-              stroke="#18B880"
-              strokeWidth="4"
-              strokeDasharray="6 4"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 1.2, ease: 'easeInOut' }}
-            />
-          )}
-
-          {/* 5. Food Donor Hubs */}
-          {DONORS.map((d) => (
-            <g key={d.id} className="donor-hub-node">
-              <circle cx={d.x} cy={d.y} r="10" fill="#252726" stroke="#ffffff" strokeWidth="1.5" />
-              <rect x={d.x - 4} y={d.y - 4} width="8" height="8" rx="1.5" fill="#F9771D" />
-              <text x={d.x + 14} y={d.y + 4} fill="#ffffff" fontSize="11" fontWeight="700" fontFamily="'Outfit', sans-serif">
-                {d.name}
-              </text>
-            </g>
-          ))}
-
-          {/* 6. Shelter Destination Nodes */}
-          {(mapFilter === 'all' || mapFilter === 'shelters') &&
-            SHELTERS.map((s) => {
-              const pct = Math.round((s.current / s.capacity) * 100)
-              const isSelected = selectedShelter === s.id
-              return (
-                <g
-                  key={s.id}
-                  className="shelter-map-node"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setSelectedShelter(s.id)}
-                >
-                  {/* Warning pulse if full */}
-                  {s.isWarning && (
-                    <circle cx={s.x} cy={s.y} r="22" fill="none" stroke="#CE6969" strokeWidth="1.5" opacity="0.6">
-                      <animate attributeName="r" values="16;28;16" dur="2s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="0.8;0.1;0.8" dur="2s" repeatCount="indefinite" />
-                    </circle>
-                  )}
-
-                  {/* Recommended green halo for fallback */}
-                  {s.isRecommended && (
-                    <circle cx={s.x} cy={s.y} r="22" fill="none" stroke="#18B880" strokeWidth="1.5" opacity="0.5">
-                      <animate attributeName="r" values="18;26;18" dur="2.4s" repeatCount="indefinite" />
-                    </circle>
-                  )}
-
-                  <circle
-                    cx={s.x}
-                    cy={s.y}
-                    r="15"
-                    fill={s.isWarning ? '#341a1a' : s.isRecommended ? '#182f24' : '#222423'}
-                    stroke={s.isWarning ? '#CE6969' : s.isRecommended ? '#18B880' : '#888888'}
-                    strokeWidth={isSelected ? '3' : '1.8'}
-                  />
-
-                  {/* Shelter Building Icon */}
-                  <path
-                    d={`M ${s.x - 6} ${s.y + 5} V ${s.y - 2} L ${s.x} ${s.y - 7} L ${s.x + 6} ${s.y - 2} V ${s.y + 5} Z`}
-                    fill={s.isWarning ? '#CE6969' : s.isRecommended ? '#18B880' : '#ffffff'}
-                  />
-
-                  {/* Label & Capacity Badge */}
-                  <text
-                    x={s.x}
-                    y={s.y - 22}
-                    textAnchor="middle"
-                    fill="#ffffff"
-                    fontSize="11"
-                    fontWeight="700"
-                    fontFamily="'Outfit', sans-serif"
-                  >
-                    {s.name.split(' (')[0]}
-                  </text>
-                  <text
-                    x={s.x}
-                    y={s.y + 30}
-                    textAnchor="middle"
-                    fill={s.isWarning ? '#CE6969' : s.isRecommended ? '#18B880' : '#8c908e'}
-                    fontSize="10"
-                    fontWeight="700"
-                    fontFamily="'DM Mono', monospace"
-                  >
-                    {s.current}/{s.capacity} ({pct}%)
-                  </text>
-                </g>
-              )
-            })}
-
-          {/* 7. Live Volunteer Couriers with Pulsing GPS (Swiggy/Zomato style) */}
-          {(mapFilter === 'all' || mapFilter === 'couriers') &&
-            COURIERS.map((c) => {
-              const isSelected = selectedCourier === c.id
-              return (
-                <g
-                  key={c.id}
-                  className="courier-marker-group"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setSelectedCourier(c.id)}
-                >
-                  {/* Swiggy/Zomato Style GPS Pulse Ring */}
-                  <circle
-                    cx={c.x}
-                    cy={c.y}
-                    r="18"
-                    fill={c.isHero ? 'rgba(249, 119, 29, 0.2)' : 'rgba(24, 184, 128, 0.15)'}
-                    stroke={c.isHero ? '#F9771D' : '#18B880'}
-                    strokeWidth="1.2"
-                  >
-                    <animate attributeName="r" values="12;24;12" dur="1.8s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.9;0.2;0.9" dur="1.8s" repeatCount="indefinite" />
-                  </circle>
-
-                  {/* Courier Marker Disc */}
-                  <circle
-                    cx={c.x}
-                    cy={c.y}
-                    r="11"
-                    fill={c.isHero ? '#F9771D' : '#18B880'}
-                    stroke="#ffffff"
-                    strokeWidth="2"
-                    filter="url(#courier-glow)"
-                  />
-
-                  {/* Mini Bike Icon */}
-                  <circle cx={c.x - 3.5} cy={c.y + 2.5} r="2" fill="#ffffff" />
-                  <circle cx={c.x + 3.5} cy={c.y + 2.5} r="2" fill="#ffffff" />
-                  <path d={`M ${c.x - 1} ${c.y + 2} L ${c.x} ${c.y - 3} L ${c.x + 2} ${c.y + 2}`} stroke="#ffffff" strokeWidth="1.2" />
-
-                  {/* Courier Name Tag */}
-                  <g transform={`translate(${c.x + 14}, ${c.y - 10})`}>
-                    <rect width="90" height="22" rx="6" fill="#181818" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-                    <text x="6" y="14" fill="#ffffff" fontSize="10" fontWeight="700" fontFamily="'Outfit', sans-serif">
-                      {c.id.toUpperCase()} • {c.speed}
-                    </text>
-                  </g>
-                </g>
-              )
-            })}
-        </svg>
+        <div
+          ref={mapContainerRef}
+          id="leaflet-fleet-map"
+          style={{ width: '100%', height: '560px' }}
+        />
 
         {/* Live Swiggy/Zomato Tracking Drawer Card (Bottom Right Floating Card) */}
         <div className="live-delivery-tracking-card">
@@ -457,3 +435,4 @@ export function LiveFleetMapView({
     </div>
   )
 }
+export default LiveFleetMapView
