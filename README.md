@@ -4,7 +4,7 @@ Vigilo is a production-grade, authoritative backend engine engineered for crisis
 
 ---
 
-## 🏛️ Architectural Overview & Core Invariants
+## Architectural Overview & Core Invariants
 
 Vigilo is structured strictly on resilient distributed systems principles:
 
@@ -35,54 +35,14 @@ Vigilo is structured strictly on resilient distributed systems principles:
 
 ---
 
-## 🚀 Quickstart & Clean Environment Setup
+## Key API Endpoints
 
-### 1. Requirements
-- Python 3.11+ (tested on Python 3.13)
-- Optional: PostgreSQL / Supabase connection (falls back to isolated in-memory domain service for local development and testing)
-
-### 2. Installation
-```bash
-git clone https://github.com/JatinWatwani/Technet.git
-cd Technet
-python -m pip install -e ".[dev]"
-```
-
-### 3. Environment Variables
-Create a `.env` file in the root directory:
-```env
-# Operational environment
-VIGILO_ENV=production
-CLOCK_MODE=SIMULATED        # Options: SIMULATED (for deterministic tests) or SYSTEM (wall-clock)
-
-# Database (optional - if omitted, memory domain backend runs)
-DATABASE_URL=postgresql://user:password@localhost:5432/vigilo
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SECRET_KEY=your-service-role-key
-```
-
-### 4. Run the Full Test Suite
-Execute the 87 automated tests across all 7 development phases:
-```bash
-python -m pytest -v
-```
-
-### 5. Launch the API Server
-```bash
-uvicorn vigilo.main:app --app-dir apps/api --host 0.0.0.0 --port 8000 --reload
-```
-Interactive API documentation is accessible at: `http://localhost:8000/docs`
-
----
-
-## 📡 Key API Endpoints
-
-### 🩺 Health & Observability
+### Health & Observability
 - `GET /v1/health`: Liveness probe.
 - `GET /v1/ready`: Readiness probe verifying ledger reconciliation and worker status.
 - `GET /v1/metrics`: Prometheus metrics (`format=prometheus` or `Accept: text/plain`) or structured JSON.
 
-### 📦 Dispatch & Execution
+### Dispatch & Execution
 - `POST /v1/dispatch/preview`: Feasibility check, candidate discovery, and Last-Safe-Decision clock calculation.
 - `POST /v1/dispatch/commit`: Creates an atomic allocation claim with a lease expiration.
 - `POST /v1/allocations/{id}/acknowledge`: Rider confirms acceptance.
@@ -90,14 +50,14 @@ Interactive API documentation is accessible at: `http://localhost:8000/docs`
 - `POST /v1/deliveries/{id}/deliver`: Confirms safe delivery at destination shelter.
 - `POST /v1/allocations/{id}/cancel`: Cancels unpicked allocation and restores available batch balance.
 
-### 🚨 Recovery Engine & Workers
+### Recovery Engine & Workers
 - `POST /v1/shelters/{id}/close`: Cascades shelter shutdown, releases unpicked claims, and reroutes active deliveries.
 - `POST /v1/deliveries/{id}/reroute/preview`: Scores alternative destinations for in-transit cargo.
 - `POST /v1/deliveries/{id}/reroute/commit`: Updates destination shelter to chosen target.
 - `POST /v1/workers/run-sweeps`: Autonomous worker executing lease expiration, heartbeat monitoring, and safety-deadline checks.
 - `POST /v1/incidents/{id}/resolve`: Resolves an incident with operational notes.
 
-### 🧪 Simulation Studio & Chaos Lab
+### Simulation Studio & Chaos Lab
 - `GET /v1/scenarios/presets`: Lists judge evaluation presets.
 - `POST /v1/scenarios`: Creates an isolated scenario sandbox.
 - `POST /v1/scenarios/{id}/advance-time`: Advances simulated clock and triggers background sweep workers.
@@ -105,7 +65,7 @@ Interactive API documentation is accessible at: `http://localhost:8000/docs`
 - `GET /v1/scenarios/{id}/replay`: Replays chronological sequence of decisions and events.
 - `POST /v1/scenarios/{id}/compare-baseline`: Runs Greedy Baseline and generates comparative scorecard.
 
-### 🛡️ Auditing & Emergency Overrides
+### Auditing & Emergency Overrides
 - `GET /v1/events`: Chronological domain event log.
 - `GET /v1/audit/decisions/{id}`: Full decision record with constraints, evaluated candidates, and actor context.
 - `GET /v1/audit/inventory/{batch_id}`: Verifiable ledger timeline and balance history.
@@ -113,7 +73,7 @@ Interactive API documentation is accessible at: `http://localhost:8000/docs`
 
 ---
 
-## 🧪 Chaos Lab Scenarios
+## Chaos Lab Scenarios
 
 | Scenario ID | Name | Focus & Key Chaos Invariant |
 |---|---|---|
@@ -124,7 +84,7 @@ Interactive API documentation is accessible at: `http://localhost:8000/docs`
 
 ---
 
-## 📜 Invariant Verification Guarantee
+## Invariant Verification Guarantee
 Under all tested crisis scenarios:
 - **Quantity Conservation**: Conserved 100% of the time across all transactions.
 - **Double Allocation**: 0 violations.

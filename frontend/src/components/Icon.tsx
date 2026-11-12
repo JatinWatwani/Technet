@@ -9,6 +9,7 @@ export function Icon({ name, size = 18, strokeWidth = 1.8 }: { name: IconName; s
     alert: <><path {...common} d="M10.3 4.2 3.8 16a1.5 1.5 0 0 0 1.3 2.2h13.8a1.5 1.5 0 0 0 1.3-2.2L13.7 4.2a2 2 0 0 0-3.4 0Z" /><path {...common} d="M12 9v3.7M12 15.6h.01" /></>,
     arrowDown: <><path {...common} d="M12 4v15M6.5 13.5 12 19l5.5-5.5" /></>,
     arrowUp: <><path {...common} d="M12 20V5M6.5 10.5 12 5l5.5 5.5" /></>,
+    arrowRight: <><path {...common} d="M4 12h15M13.5 6.5 19 12l-5.5 5.5" /></>,
     bell: <><path {...common} d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" /></>,
     bike: <><circle {...common} cx="5.5" cy="17" r="2.8" /><circle {...common} cx="18.5" cy="17" r="2.8" /><path {...common} d="m8.5 17 3-7 3.5 7m-6.5 0h6.5l-3.3-6H15l2 3M11.5 10H9" /></>,
     book: <><path {...common} d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12v16H7a2.5 2.5 0 0 0-2.5 2.5v-16Z" /><path {...common} d="M7 19h12" /></>,

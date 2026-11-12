@@ -24,6 +24,7 @@ const TABS = [
   { id: 'alerts', label: 'Key Alerts' },
   { id: 'insights', label: 'Insights' },
   { id: 'executions', label: 'Executions' },
+  { id: 'mobile', label: '📱 Courier App' },
 ]
 
 export function CyberTopNav({
@@ -44,7 +45,7 @@ export function CyberTopNav({
   return (
     <header className="cyber-topbar">
       {/* Brand */}
-      <div className="cyber-brand" onClick={() => onTabChange('overview')} style={{ cursor: 'pointer' }}>
+      <div className="cyber-brand" onClick={() => onTabChange('landing')} style={{ cursor: 'pointer' }} title="Return to Home">
         <motion.div
           className="cyber-logo-mark"
           whileHover={{ scale: 1.05 }}

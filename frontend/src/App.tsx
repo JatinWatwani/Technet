@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Capacitor } from '@capacitor/core'
 import { VigiloProvider, useVigilo } from './context/VigiloContext'
 import { CyberTopNav } from './components/cyber-vigilio/CyberTopNav'
 import { DarkHeroStage } from './components/cyber-vigilio/DarkHeroStage'
@@ -19,9 +20,15 @@ import { ExecutionsView } from './components/cyber-vigilio/ExecutionsView'
 import { OperationsMatrixView } from './components/cyber-vigilio/OperationsMatrixView'
 import { LiveFleetMapView } from './components/cyber-vigilio/LiveFleetMapView'
 import { VigilioLandingPage } from './components/landing/VigilioLandingPage'
+import { MobileAppRoot } from './mobile-app/MobileAppRoot'
 
 function VigiloDashboard() {
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== 'undefined' && (window.location.search.includes('view=mobile') || window.location.pathname === '/app')) {
+      return 'mobile'
+    }
+    return 'landing'
+  })
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [isAlertsTableOpen, setIsAlertsTableOpen] = useState(false)
   const [isTimelineDrawerOpen, setIsTimelineDrawerOpen] = useState(false)
@@ -160,9 +167,18 @@ function VigiloDashboard() {
         <CyberTopNav
           activeTab={activeTab}
           onTabChange={(tab) => {
+            if (tab === 'overview' && activeTab === 'landing') {
+              const el = document.getElementById('mission-control')
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                showToast('Scrolled to Submerged Mission Control & Data Overview.')
+                return
+              }
+            }
             setActiveTab(tab)
             setIsMatrixActive(false)
             if (tab === 'landing') showToast('Switched to Vigilio Home.')
+            else if (tab === 'mobile') showToast('Switched to Field Courier Mobile App (PWA).')
             else if (tab === 'map') showToast('Switched to Live Volunteer Fleet & Shelter Map.')
             else if (tab === 'alerts') showToast('Switched to Key Alerts Matrix workspace.')
             else if (tab === 'insights') showToast('Switched to Network Telemetry Insights workspace.')
@@ -200,7 +216,7 @@ function VigiloDashboard() {
           />
         ) : (
           <AnimatePresence mode="wait">
-            {/* TAB 0: Landing Page */}
+            {/* TAB 0: Landing Page with Submerged Live Mission Control */}
             {activeTab === 'landing' && (
               <motion.div
                 key="tab-landing"
@@ -212,9 +228,87 @@ function VigiloDashboard() {
                 <VigilioLandingPage
                   onEnterDashboard={(tab) => {
                     const target = tab || 'overview'
+                    if (target === 'overview') {
+                      const el = document.getElementById('mission-control')
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        showToast('Viewing Submerged Mission Control & Data Overview.')
+                        return
+                      }
+                    }
                     setActiveTab(target)
                     showToast(`Entering Vigilio Mission Control: ${target.toUpperCase()}`)
                   }}
+                  missionControlSlot={
+                    <div className="submerged-operations-wrapper">
+                      <div className="submerged-section-badge-bar">
+                        <div className="submerged-live-chip">
+                          <span className="live-pulsing-dot" />
+                          <span>LIVE AUTONOMOUS CRISIS OPERATIONS</span>
+                        </div>
+                        <h2 className="submerged-section-heading">Real-Time Logistics Engine & Invariant Ledger</h2>
+                        <p className="submerged-section-caption">
+                          Autonomous cold-chain safeguards, volunteer courier allocations, and dynamic shelter rerouting running live on the authoritative Vigilio engine.
+                        </p>
+                      </div>
+
+                      {/* Upper Dark Hero Stage (#181818) */}
+                      <DarkHeroStage
+                        onBackToOverview={() => {
+                          showToast('Reset to Master Dynamic View.')
+                        }}
+                        onTriggerReroute={handleTriggerReroute}
+                        shelterAOverflow={shelterAOverflow}
+                        isRerouting={isRerouting}
+                        rerouteResolved={rerouteResolved}
+                        onResolveIncident={async (id) => {
+                          await resolveIncident(id)
+                          showToast(`Incident ${id} marked managed.`)
+                        }}
+                        onSelectSeverity={(sev) => showToast(`Filtered telemetry to Severity: ${sev}`)}
+                        onOpenMap={() => setActiveTab('map')}
+                        incidents={incidents}
+                      />
+
+                      {/* Bottom Bento Row (4 Cards) */}
+                      <div className="cyber-bottom-grid">
+                        {/* Card 1: Sources */}
+                        <SourcesBentoCard
+                          onSplitBatch={handleSplitBatch}
+                          splitComplete={splitComplete}
+                          batches={batches}
+                        />
+
+                        {/* Card 2: Alerts */}
+                        <AlertsBentoCard
+                          waterOnline={waterOnline}
+                          onToggleWater={handleToggleWater}
+                          onOpenAlertsTable={() => setIsAlertsTableOpen(true)}
+                          incidents={incidents}
+                        />
+
+                        {/* Card 3: Automation */}
+                        <AutomationBentoCard
+                          onRunPlaybook1={handleSplitBatch}
+                          onRunPlaybook2={handleStallRider}
+                          onRunPlaybook3={handleTriggerReroute}
+                        />
+
+                        {/* Card 4: Assets */}
+                        <AssetsBentoCard
+                          onSelectAsset={(id) => showToast(`Selected asset: ${id} · Telemetry active.`)}
+                          onOpenFleetMap={() => setActiveTab('map')}
+                          riders={riders}
+                        />
+                      </div>
+
+                      {/* Bottom Horizontal Floating Timeline Bar */}
+                      <BottomTimelineBar
+                        onOpenFullTimeline={() => setIsTimelineDrawerOpen(true)}
+                        onQuickAddAlert={() => setIsCreateModalOpen(true)}
+                      />
+                    </div>
+                  }
                 />
               </motion.div>
             )}
@@ -361,6 +455,19 @@ function VigiloDashboard() {
                 />
               </motion.div>
             )}
+
+            {/* TAB 6: Field Courier Mobile App */}
+            {activeTab === 'mobile' && (
+              <motion.div
+                key="tab-mobile"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.25 }}
+              >
+                <MobileAppRoot onExitToWeb={() => setActiveTab('overview')} />
+              </motion.div>
+            )}
           </AnimatePresence>
         )}
       </div>
@@ -415,6 +522,22 @@ function VigiloDashboard() {
 }
 
 export function App() {
+  const isNative = typeof window !== 'undefined' && (
+    Capacitor.isNativePlatform() ||
+    window.location.search.includes('platform=native') ||
+    window.location.search.includes('view=mobile') ||
+    window.location.pathname === '/app' ||
+    window.location.pathname.startsWith('/courier')
+  )
+
+  if (isNative) {
+    return (
+      <VigiloProvider>
+        <MobileAppRoot isNativeApp={Capacitor.isNativePlatform() || window.location.search.includes('platform=native')} />
+      </VigiloProvider>
+    )
+  }
+
   return (
     <VigiloProvider>
       <VigiloDashboard />

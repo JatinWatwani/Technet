@@ -5,47 +5,24 @@ import { LandingHeroMap } from './LandingHeroMap'
 
 interface VigilioLandingPageProps {
   onEnterDashboard: (tab?: string) => void
+  missionControlSlot?: React.ReactNode
 }
 
-export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps) {
+export function VigilioLandingPage({ onEnterDashboard, missionControlSlot }: VigilioLandingPageProps) {
   const [hoveredCard, setHoveredCard] = useState<number | null>(null)
+
+  const scrollToMissionControl = () => {
+    const el = document.getElementById('mission-control')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else {
+      onEnterDashboard('overview')
+    }
+  }
 
   return (
     <div className="landing-page-root">
-      {/* 1. Header Navigation */}
-      <header className="landing-navbar">
-        <div className="landing-brand-wrap" onClick={() => onEnterDashboard('overview')}>
-          <div className="landing-logo-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 2L4 6V12C4 17.5 7.4 22.6 12 24C16.6 22.6 20 17.5 20 12V6L12 2Z"
-                stroke="#18B880"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <circle cx="12" cy="12" r="3" fill="#18B880" />
-            </svg>
-          </div>
-          <span className="landing-brand-cursive">Vigilio</span>
-        </div>
-
-        {/* Center Pill Menu */}
-        <nav className="landing-nav-pills">
-          <a href="#features" className="nav-pill-link">Product</a>
-          <a href="#solutions" className="nav-pill-link">Solutions</a>
-          <a href="#security" className="nav-pill-link">Security</a>
-          <a href="#mesh" className="nav-pill-link">Fleet Mesh</a>
-          <button
-            className="nav-pill-cta"
-            onClick={() => onEnterDashboard('overview')}
-          >
-            Launch Mission Control ↗
-          </button>
-        </nav>
-      </header>
-
-      {/* 2. Hero Section with Floating Orbiting Cards */}
+      {/* 1. Hero Section with Floating Orbiting Cards (Clean single-navbar integration) */}
       <section className="landing-hero-section">
         {/* Eyebrow Tag */}
         <motion.div
@@ -87,11 +64,11 @@ export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps
         >
           <button
             className="hero-primary-cta"
-            onClick={() => onEnterDashboard('overview')}
+            onClick={scrollToMissionControl}
           >
-            <span>Explore Vigilio</span>
+            <span>Explore Mission Control</span>
             <span className="cta-arrow-circle">
-              <Icon name="arrowUp" size={13} />
+              <Icon name="arrowDown" size={13} />
             </span>
           </button>
         </motion.div>
@@ -146,7 +123,7 @@ export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps
             }}
             transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
             whileHover={{ scale: 1.08, rotate: 0 }}
-            onClick={() => onEnterDashboard('executions')}
+            onClick={scrollToMissionControl}
           >
             <div className="orbit-card-visual bg-indigo-dark">
               <div className="nested-discs-graphic">
@@ -201,6 +178,13 @@ export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps
         </div>
       </section>
 
+      {/* 2. Submerged Real-Time Mission Control & Operations Grid */}
+      {missionControlSlot && (
+        <section className="landing-submerged-mission-control" id="mission-control">
+          {missionControlSlot}
+        </section>
+      )}
+
       {/* 3. Deep Forest Teal Organic Wavy Section (Frame 00:02-00:03) */}
       <section className="landing-dark-forest-section" id="solutions">
         <div className="dark-forest-container">
@@ -215,9 +199,17 @@ export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps
             <div className="forest-cta-row">
               <button
                 className="forest-primary-btn"
-                onClick={() => onEnterDashboard('overview')}
+                onClick={scrollToMissionControl}
               >
                 <span>Start Coordinating</span>
+              </button>
+
+              <button
+                className="forest-secondary-btn"
+                onClick={() => onEnterDashboard('mobile')}
+                title="Launch Mobile Partner App for Field Couriers"
+              >
+                <span>📱 Launch Courier App</span>
               </button>
 
               {/* Hand-drawn curved arrow annotation */}
@@ -369,7 +361,7 @@ export function VigilioLandingPage({ onEnterDashboard }: VigilioLandingPageProps
           <div className="cta-action-container">
             <button
               className="cta-huge-button"
-              onClick={() => onEnterDashboard('overview')}
+              onClick={scrollToMissionControl}
             >
               <span>Get Started</span>
             </button>

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vigilio Partner</string>
+    <string name="title_activity_main">Vigilio Partner</string>
+    <string name="package_name">com.vigilio.partner</string>
+    <string name="custom_url_scheme">com.vigilio.partner</string>
+</resources>

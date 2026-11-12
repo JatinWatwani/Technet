@@ -7,6 +7,7 @@ export type IconName =
   | 'alert'
   | 'arrowDown'
   | 'arrowUp'
+  | 'arrowRight'
   | 'bell'
   | 'bike'
   | 'book'
